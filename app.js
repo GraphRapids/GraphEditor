@@ -3,11 +3,11 @@ import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import YAML from "https://esm.sh/js-yaml@4.1.0";
 import Ajv2020 from "https://esm.sh/ajv@8.17.1/dist/2020";
 import htm from "https://esm.sh/htm@3.1.1";
+import Editor from "https://esm.sh/@monaco-editor/react@4.7.0?deps=react@18.3.1,react-dom@18.3.1";
+import { UncontrolledReactSVGPanZoom } from "https://esm.sh/react-svg-pan-zoom@3.13.1?deps=react@18.3.1";
 
 const API_BASE = "/api";
 const DEBOUNCE_MS = 450;
-const MIN_SCALE = 0.05;
-const MAX_SCALE = 6;
 const html = htm.bind(React.createElement);
 
 const INITIAL_YAML = `nodes:
@@ -17,10 +17,6 @@ links:
   - from: A
     to: B
 `;
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
 
 function formatAjvErrors(errors = []) {
   return errors.map((err) => {
@@ -38,47 +34,71 @@ function extractSvg(text) {
   return text.slice(start, end + 6);
 }
 
-function parseSvgSize(svg) {
-  if (!svg) {
-    return { width: 1, height: 1 };
+function parseSvgDocument(svgText) {
+  if (!svgText) {
+    return { width: 1, height: 1, viewBox: null, inner: "" };
   }
-  try {
-    const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
-    const root = doc.documentElement;
-    const widthAttr = root.getAttribute("width");
-    const heightAttr = root.getAttribute("height");
-    const viewBoxAttr = root.getAttribute("viewBox");
+  const svgMatch = svgText.match(/<svg\b([^>]*)>([\s\S]*?)<\/svg>/i);
+  if (svgMatch) {
+    const attrs = svgMatch[1] || "";
+    const inner = svgMatch[2] || "";
+    const widthAttr = (attrs.match(/\bwidth\s*=\s*["']([^"']+)["']/i) || [])[1] || null;
+    const heightAttr = (attrs.match(/\bheight\s*=\s*["']([^"']+)["']/i) || [])[1] || null;
+    const viewBoxAttr = (attrs.match(/\bviewBox\s*=\s*["']([^"']+)["']/i) || [])[1] || null;
     const widthIsPercent = widthAttr ? widthAttr.trim().endsWith("%") : false;
     const heightIsPercent = heightAttr ? heightAttr.trim().endsWith("%") : false;
     const width = widthAttr && !widthIsPercent ? Number.parseFloat(widthAttr) : NaN;
     const height = heightAttr && !heightIsPercent ? Number.parseFloat(heightAttr) : NaN;
-    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-      return { width, height };
-    }
-    if (viewBoxAttr) {
-      const parts = viewBoxAttr.trim().split(/\s+/).map((v) => Number.parseFloat(v));
+    let parsedWidth = Number.isFinite(width) && width > 0 ? width : NaN;
+    let parsedHeight = Number.isFinite(height) && height > 0 ? height : NaN;
+
+    if ((!parsedWidth || !parsedHeight) && viewBoxAttr) {
+      const parts = viewBoxAttr.trim().split(/\s+/).map((value) => Number.parseFloat(value));
       if (parts.length === 4 && Number.isFinite(parts[2]) && Number.isFinite(parts[3])) {
-        return { width: Math.max(1, parts[2]), height: Math.max(1, parts[3]) };
+        parsedWidth = Math.max(1, parts[2]);
+        parsedHeight = Math.max(1, parts[3]);
       }
     }
-  } catch (_err) {
-    // Keep fallback size when SVG parsing fails.
+
+    return {
+      width: parsedWidth || 1,
+      height: parsedHeight || 1,
+      viewBox: viewBoxAttr,
+      inner,
+    };
   }
-  return { width: 1, height: 1 };
-}
 
-function computeFitView(shellWidth, shellHeight, svgWidth, svgHeight, fitMode) {
-  const widthScale = shellWidth / svgWidth;
-  const heightScale = shellHeight / svgHeight;
-  const fitScale = fitMode === "width" ? widthScale : Math.min(widthScale, heightScale);
-  const scale = clamp(Number.isFinite(fitScale) && fitScale > 0 ? fitScale : 1, MIN_SCALE, MAX_SCALE);
+  try {
+    const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+    const root = doc.documentElement;
+    const widthAttr = root.getAttribute("width");
+    const heightAttr = root.getAttribute("height");
+    const viewBox = root.getAttribute("viewBox");
+    const widthIsPercent = widthAttr ? widthAttr.trim().endsWith("%") : false;
+    const heightIsPercent = heightAttr ? heightAttr.trim().endsWith("%") : false;
+    const width = widthAttr && !widthIsPercent ? Number.parseFloat(widthAttr) : NaN;
+    const height = heightAttr && !heightIsPercent ? Number.parseFloat(heightAttr) : NaN;
 
-  const scaledWidth = svgWidth * scale;
-  const scaledHeight = svgHeight * scale;
-  const x = fitMode === "width" ? (shellWidth - scaledWidth) / 2 : (shellWidth - scaledWidth) / 2;
-  const y = fitMode === "width" ? 0 : (shellHeight - scaledHeight) / 2;
+    let parsedWidth = Number.isFinite(width) && width > 0 ? width : NaN;
+    let parsedHeight = Number.isFinite(height) && height > 0 ? height : NaN;
 
-  return { scale, x, y };
+    if ((!parsedWidth || !parsedHeight) && viewBox) {
+      const parts = viewBox.trim().split(/\s+/).map((value) => Number.parseFloat(value));
+      if (parts.length === 4 && Number.isFinite(parts[2]) && Number.isFinite(parts[3])) {
+        parsedWidth = Math.max(1, parts[2]);
+        parsedHeight = Math.max(1, parts[3]);
+      }
+    }
+
+    return {
+      width: parsedWidth || 1,
+      height: parsedHeight || 1,
+      viewBox,
+      inner: root.innerHTML || "",
+    };
+  } catch (_err) {
+    return { width: 1, height: 1, viewBox: null, inner: "" };
+  }
 }
 
 function App() {
@@ -88,23 +108,21 @@ function App() {
   const [svgText, setSvgText] = useState("");
   const [status, setStatus] = useState("Loading schema...");
   const [errors, setErrors] = useState([]);
-  const [fitMode, setFitMode] = useState("page");
   const [theme, setTheme] = useState("light");
   const [isManualView, setIsManualView] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
+  const [viewerSize, setViewerSize] = useState({ width: 640, height: 420 });
 
   const validateRef = useRef(null);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
   const requestIdRef = useRef(0);
   const previewShellRef = useRef(null);
-  const dragRef = useRef(null);
-  const viewRef = useRef(view);
+  const viewerRef = useRef(null);
+  const suppressViewEventsRef = useRef(false);
+  const [svgObjectUrl, setSvgObjectUrl] = useState("");
 
-  useEffect(() => {
-    viewRef.current = view;
-  }, [view]);
+  const svgDoc = useMemo(() => parseSvgDocument(svgText), [svgText]);
+  const canDownload = useMemo(() => svgText.trim().length > 0, [svgText]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -199,6 +217,7 @@ function App() {
         if (!nextSvg) {
           throw new Error("Render response did not contain SVG.");
         }
+
         setSvgText(nextSvg);
         setIsManualView(false);
         setStatus("Rendered.");
@@ -219,6 +238,49 @@ function App() {
   }, [yamlText, schema, schemaError]);
 
   useEffect(() => {
+    const shell = previewShellRef.current;
+    if (!shell) {
+      return;
+    }
+
+    const updateSize = () => {
+      setViewerSize({
+        width: Math.max(200, Math.floor(shell.clientWidth)),
+        height: Math.max(200, Math.floor(shell.clientHeight)),
+      });
+    };
+
+    updateSize();
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(shell);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  function applyFit() {
+    const viewer = viewerRef.current;
+    if (!viewer || !svgText) {
+      return;
+    }
+
+    suppressViewEventsRef.current = true;
+    try {
+      viewer.fitToViewer("center", "center");
+    } finally {
+      window.setTimeout(() => {
+        suppressViewEventsRef.current = false;
+      }, 0);
+    }
+  }
+
+  useEffect(() => {
+    if (!svgText || isManualView) {
+      return;
+    }
+    const id = requestAnimationFrame(() => applyFit());
+    return () => cancelAnimationFrame(id);
+  }, [svgText, svgDoc.width, svgDoc.height, viewerSize.width, viewerSize.height, isManualView]);
+
+  useEffect(() => {
     return () => {
       if (abortRef.current) {
         abortRef.current.abort();
@@ -229,128 +291,22 @@ function App() {
     };
   }, []);
 
-  const svgSize = useMemo(() => parseSvgSize(svgText), [svgText]);
-
   useEffect(() => {
-    const shell = previewShellRef.current;
-    if (!shell || !svgText) {
-      return;
-    }
-
-    const applyFitIfNeeded = () => {
-      const shellWidth = Math.max(1, shell.clientWidth);
-      const shellHeight = Math.max(1, shell.clientHeight);
-      const nextView = computeFitView(shellWidth, shellHeight, svgSize.width, svgSize.height, fitMode);
-      if (!isManualView) {
-        setView(nextView);
-      }
-    };
-
-    applyFitIfNeeded();
-    const resizeObserver = new ResizeObserver(applyFitIfNeeded);
-    resizeObserver.observe(shell);
-    return () => resizeObserver.disconnect();
-  }, [svgText, svgSize.width, svgSize.height, fitMode, isManualView]);
-
-  useEffect(() => {
-    const onMouseMove = (event) => {
-      const drag = dragRef.current;
-      if (!drag || !drag.active) {
-        return;
-      }
-      const dx = event.clientX - drag.startX;
-      const dy = event.clientY - drag.startY;
-      setView((prev) => ({ ...prev, x: drag.startPanX + dx, y: drag.startPanY + dy }));
-    };
-
-    const onMouseUp = () => {
-      if (dragRef.current?.active) {
-        dragRef.current.active = false;
-        setIsDragging(false);
-      }
-    };
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, []);
-
-  const canDownload = useMemo(() => svgText.trim().length > 0, [svgText]);
-
-  function applyFitNow(mode = fitMode) {
-    const shell = previewShellRef.current;
-    if (!shell || !svgText) {
-      return;
-    }
-    const shellWidth = Math.max(1, shell.clientWidth);
-    const shellHeight = Math.max(1, shell.clientHeight);
-    setView(computeFitView(shellWidth, shellHeight, svgSize.width, svgSize.height, mode));
-  }
-
-  function zoomAtPoint(shellX, shellY, factor) {
-    setIsManualView(true);
-    setView((prev) => {
-      const nextScale = clamp(prev.scale * factor, MIN_SCALE, MAX_SCALE);
-      const graphX = (shellX - prev.x) / prev.scale;
-      const graphY = (shellY - prev.y) / prev.scale;
-      const nextX = shellX - graphX * nextScale;
-      const nextY = shellY - graphY * nextScale;
-      return { scale: nextScale, x: nextX, y: nextY };
-    });
-  }
-
-  function zoomAtCenter(factor) {
-    const shell = previewShellRef.current;
-    if (!shell) {
-      return;
-    }
-    zoomAtPoint(shell.clientWidth / 2, shell.clientHeight / 2, factor);
-  }
-
-  function handleWheel(event) {
     if (!svgText) {
+      setSvgObjectUrl("");
       return;
     }
-    event.preventDefault();
-    const shell = previewShellRef.current;
-    if (!shell) {
-      return;
-    }
-    const rect = shell.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    const factor = Math.exp(-event.deltaY * 0.0015);
-    zoomAtPoint(x, y, factor);
-  }
+    const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+    const objectUrl = URL.createObjectURL(blob);
+    setSvgObjectUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [svgText]);
 
-  function handleMouseDown(event) {
-    if (!svgText || event.button !== 0) {
+  function onUserPanZoom() {
+    if (suppressViewEventsRef.current) {
       return;
     }
-    const current = viewRef.current;
-    dragRef.current = {
-      active: true,
-      startX: event.clientX,
-      startY: event.clientY,
-      startPanX: current.x,
-      startPanY: current.y,
-    };
     setIsManualView(true);
-    setIsDragging(true);
-  }
-
-  function resetView() {
-    setIsManualView(false);
-    applyFitNow();
-  }
-
-  function setModeAndRefit(mode) {
-    setFitMode(mode);
-    setIsManualView(false);
-    applyFitNow(mode);
   }
 
   function downloadSvg() {
@@ -373,13 +329,22 @@ function App() {
           <h1>GraphEditor</h1>
           <p>YAML input</p>
         </div>
-        <textarea
-          value=${yamlText}
-          onChange=${(e) => setYamlText(e.target.value)}
-          spellCheck=${false}
-          className="yaml-editor"
-          aria-label="YAML editor"
-        />
+        <div className="editor-shell" aria-label="YAML editor">
+          <${Editor}
+            height="100%"
+            defaultLanguage="yaml"
+            value=${yamlText}
+            onChange=${(value) => setYamlText(value || "")}
+            theme=${theme === "dark" ? "vs-dark" : "light"}
+            options=${{
+              minimap: { enabled: false },
+              wordWrap: "on",
+              fontSize: 14,
+              automaticLayout: true,
+              scrollBeyondLastLine: false,
+            }}
+          />
+        </div>
       </section>
       <section className="pane pane-right">
         <div className="pane-header row">
@@ -388,23 +353,6 @@ function App() {
             <p>${status}</p>
           </div>
           <div className="controls">
-            <button type="button" onClick=${() => zoomAtCenter(1.15)}>Zoom +</button>
-            <button type="button" onClick=${() => zoomAtCenter(1 / 1.15)}>Zoom -</button>
-            <button type="button" onClick=${resetView}>Reset</button>
-            <button
-              type="button"
-              className=${fitMode === "page" ? "active" : ""}
-              onClick=${() => setModeAndRefit("page")}
-            >
-              Fit Page
-            </button>
-            <button
-              type="button"
-              className=${fitMode === "width" ? "active" : ""}
-              onClick=${() => setModeAndRefit("width")}
-            >
-              Fit Width
-            </button>
             <button type="button" onClick=${downloadSvg} disabled=${!canDownload}>Download SVG</button>
             <button
               type="button"
@@ -425,23 +373,40 @@ function App() {
               )
             : null}
         </div>
-        <div
-          className=${`preview-shell ${isDragging ? "is-dragging" : ""}`}
-          ref=${previewShellRef}
-          onWheel=${handleWheel}
-          onMouseDown=${handleMouseDown}
-        >
-          <div className="svg-preview">
-            <div
-              className="svg-canvas"
-              style=${{
-                width: `${svgSize.width * view.scale}px`,
-                height: `${svgSize.height * view.scale}px`,
-                transform: `translate(${view.x}px, ${view.y}px)`,
-              }}
-              dangerouslySetInnerHTML=${{ __html: svgText }}
-            />
-          </div>
+        <div className="preview-shell" ref=${previewShellRef}>
+          ${svgText
+            ? html`
+                <${UncontrolledReactSVGPanZoom}
+                  key=${`${svgDoc.width}x${svgDoc.height}-${svgText.length}`}
+                  ref=${viewerRef}
+                  width=${viewerSize.width}
+                  height=${viewerSize.height}
+                  defaultTool="auto"
+                  detectAutoPan=${false}
+                  detectWheel=${true}
+                  background="transparent"
+                  SVGBackground="transparent"
+                  toolbarProps=${{ position: "right" }}
+                  miniatureProps=${{ position: "none" }}
+                  onPan=${onUserPanZoom}
+                  onZoom=${onUserPanZoom}
+                  scaleFactorOnWheel=${1.06}
+                >
+                  <svg
+                    width=${svgDoc.width}
+                    height=${svgDoc.height}
+                    viewBox=${`0 0 ${svgDoc.width} ${svgDoc.height}`}
+                  >
+                    <image
+                      href=${svgObjectUrl || ""}
+                      width=${svgDoc.width}
+                      height=${svgDoc.height}
+                      preserveAspectRatio="xMidYMid meet"
+                    />
+                  </svg>
+                <//>
+              `
+            : html`<div className="preview-empty">Rendered SVG will appear here.</div>`}
         </div>
       </section>
     </main>

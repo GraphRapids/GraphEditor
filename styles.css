@@ -38,7 +38,7 @@ body {
 .app {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(420px, 2fr);
+  grid-template-columns: minmax(240px, 1fr) minmax(520px, 3fr);
 }
 
 .pane {
@@ -69,18 +69,13 @@ body {
   font-size: 0.9rem;
 }
 
-.yaml-editor {
+.editor-shell {
   margin-top: 0.75rem;
   width: 100%;
   flex: 1;
-  resize: none;
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 0.9rem;
-  font-family: "IBM Plex Mono", "Consolas", monospace;
-  font-size: 14px;
-  line-height: 1.45;
-  color: #132023;
+  overflow: hidden;
   background: #fcfcfa;
 }
 
@@ -138,33 +133,21 @@ button[disabled] {
   flex: 1;
   overflow: hidden;
   padding: 0;
-  cursor: grab;
 }
 
-.preview-shell.is-dragging {
-  cursor: grabbing;
-}
-
-.svg-preview {
-  position: relative;
+.preview-shell > div {
   width: 100%;
   height: 100%;
-  overflow: hidden;
-  user-select: none;
 }
 
-.svg-canvas {
-  position: absolute;
-  left: 0;
-  top: 0;
-  transform-origin: top left;
-  transition: transform 90ms ease-out;
-}
-
-.svg-canvas > svg {
-  display: block;
+.preview-empty {
   width: 100%;
   height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.95rem;
 }
 
 @media (max-width: 940px) {
