@@ -13,17 +13,38 @@
 
 ## Tech Stack
 - Web framework: React.js.
+- Frontend uses Vite + React with source under `src/`.
+- Main entry files:
+  - `index.html`
+  - `src/main.jsx`
+  - `src/App.jsx`
+  - `src/styles.css`
+- YAML editor: Monaco via `@monaco-editor/react` (`defaultLanguage="yaml"`).
+- SVG preview: `react-svg-pan-zoom` (`UncontrolledReactSVGPanZoom`).
 
 ## API 
 Use the API described in http://127.0.0.1:8000/openapi.json
+- App calls API through local proxy path `/api/*` (not direct `:8000` from browser code).
 
 ## Local Run Instructions
-- Use `.venv` for Python commands.
-- Run the local web server from repository root:
-  - `source .venv/bin/activate`
-  - `python server.py`
+- Install JS dependencies: `npm install`
+- Run dev server from repository root: `npm run dev`
 - The web UI is served at `http://127.0.0.1:9000`.
-- The server proxies `/api/*` to `http://127.0.0.1:8000/*`.
+- Vite proxies `/api/*` to `http://127.0.0.1:8000/*`.
+- Use `.venv` for Python-only tasks (e.g. `server.py` if explicitly needed).
+
+## Current UI Behavior
+- Layout: left pane (editor) is ~1/4 width, right pane (preview) is ~3/4 width on desktop.
+- Preview controls policy: use `react-svg-pan-zoom` toolbar (`toolbarProps`) for pan/zoom/fit interactions.
+- Keep header buttons limited to:
+  - `Download SVG`
+  - theme toggle (`Dark Mode` / `Light Mode`)
+- Dark/light mode:
+  - App theme is controlled with `data-theme` on document root.
+  - Rendered SVG color-scheme is patched from app theme before preview rendering.
+- Preview rendering:
+  - API SVG is displayed inside pan/zoom viewer via blob URL image.
+  - Preserve viewer zoom/pan state across rerenders (avoid remount-reset behavior).
 
 ## Coding Rules
 - Prefer small, reviewable changes.

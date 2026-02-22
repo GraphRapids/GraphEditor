@@ -7,6 +7,8 @@
   --accent: #136f63;
   --accent-strong: #0d564d;
   --accent-contrast: #ffffff;
+  --pane-right-bg: rgba(255, 255, 255, 0.62);
+  --editor-bg: #fcfcfa;
   --preview-bg: #f9f8f3;
   --danger: #a61f2a;
 }
@@ -20,6 +22,8 @@
   --accent: #1e8f7f;
   --accent-strong: #136d61;
   --accent-contrast: #eafffa;
+  --pane-right-bg: rgba(24, 29, 31, 0.78);
+  --editor-bg: #12181a;
   --preview-bg: #0f1416;
   --danger: #ff8d96;
 }
@@ -54,7 +58,7 @@ body {
 }
 
 .pane-right {
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--pane-right-bg);
 }
 
 .pane-header h1,
@@ -76,7 +80,7 @@ body {
   border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
-  background: #fcfcfa;
+  background: var(--editor-bg);
 }
 
 .row {
