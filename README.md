@@ -50,6 +50,7 @@ Available npm scripts:
 
 ```bash
 npm run dev      # local development server (port 9000)
+npm run test     # vitest + coverage thresholds
 npm run build    # production build
 npm run preview  # preview built assets
 ```
@@ -96,14 +97,8 @@ Stop the existing process on `127.0.0.1:9000` or adjust `vite.config.js` server 
 
 ```bash
 npm install
+npm run test
 npm run build
-```
-
-Optional legacy local server (Python) remains available:
-
-```bash
-source .venv/bin/activate
-python server.py
 ```
 
 ## Project Layout
@@ -112,9 +107,10 @@ python server.py
 index.html                    # Vite entry HTML
 src/main.jsx                  # React bootstrap
 src/App.jsx                   # Application logic
+src/App.test.jsx              # App test suite
+src/test/setup.js             # Test environment setup
 src/styles.css                # UI styling
 vite.config.js                # Dev server and /api proxy
-server.py                     # Optional legacy static/proxy server
 .github/workflows/            # CI, tests, release, secret scanning
 ```
 

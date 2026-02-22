@@ -21,23 +21,18 @@ npm run dev
 Build production bundle:
 
 ```bash
+npm run test
 npm run build
-```
-
-Optional legacy Python server check:
-
-```bash
-source .venv/bin/activate
-python -m py_compile server.py
 ```
 
 ## Project Structure
 
 - `src/App.jsx`: main UI and API integration logic
+- `src/App.test.jsx`: test coverage for UI and render/validation flows
+- `src/test/setup.js`: testing environment mocks/polyfills
 - `src/main.jsx`: app bootstrap
 - `src/styles.css`: visual styles and theme variables
 - `vite.config.js`: dev server and API proxy configuration
-- `server.py`: optional Python static/proxy server
 - `.github/workflows/`: CI, tests, release, and secret scanning
 
 ## Pull Requests

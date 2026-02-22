@@ -1,8 +1,9 @@
+import React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import YAML from 'js-yaml';
 import Ajv2020 from 'ajv/dist/2020';
 import Editor from '@monaco-editor/react';
-import { UncontrolledReactSVGPanZoom } from 'react-svg-pan-zoom';
+import { UncontrolledReactSVGPanZoom, fitToViewer as fitValueToViewer } from 'react-svg-pan-zoom';
 
 const API_BASE = '/api';
 const DEBOUNCE_MS = 450;
@@ -15,14 +16,14 @@ links:
     to: B
 `;
 
-function formatAjvErrors(errors = []) {
+export function formatAjvErrors(errors = []) {
   return errors.map((err) => {
     const path = err.instancePath || '/';
     return `${path}: ${err.message}`;
   });
 }
 
-function extractSvg(text) {
+export function extractSvg(text) {
   const start = text.indexOf('<svg');
   const end = text.lastIndexOf('</svg>');
   if (start === -1 || end === -1) {
@@ -31,7 +32,7 @@ function extractSvg(text) {
   return text.slice(start, end + 6);
 }
 
-function parseSvgDocument(svgText) {
+export function parseSvgDocument(svgText) {
   if (!svgText) {
     return { width: 1, height: 1, viewBox: null, inner: '' };
   }
@@ -98,7 +99,7 @@ function parseSvgDocument(svgText) {
   }
 }
 
-function applySvgColorScheme(svgText, theme) {
+export function applySvgColorScheme(svgText, theme) {
   if (!svgText) {
     return '';
   }
@@ -325,11 +326,21 @@ export default function App() {
     };
   }, []);
 
-  function onUserPanZoom() {
+  function onUserPanZoom(nextValue) {
     if (suppressViewEventsRef.current) {
       return;
     }
-    setIsManualView(true);
+    if (!nextValue || typeof nextValue !== 'object') {
+      setIsManualView(true);
+      return;
+    }
+    // Re-enable auto-fit when the user uses the toolbar fit action.
+    const fitValue = fitValueToViewer(nextValue, 'center', 'center');
+    const nearFit =
+      Math.abs(nextValue.a - fitValue.a) < 0.0001 &&
+      Math.abs(nextValue.e - fitValue.e) < 1 &&
+      Math.abs(nextValue.f - fitValue.f) < 1;
+    setIsManualView(!nearFit);
   }
 
   function downloadSvg() {
@@ -408,7 +419,7 @@ export default function App() {
               detectWheel
               background="transparent"
               SVGBackground="transparent"
-              toolbarProps={{ position: 'right' }}
+              toolbarProps={{ position: 'right', SVGAlignX: 'center', SVGAlignY: 'center' }}
               miniatureProps={{ position: 'none' }}
               onPan={onUserPanZoom}
               onZoom={onUserPanZoom}

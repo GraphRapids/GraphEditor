@@ -14,7 +14,7 @@ GraphEditor is licensed under Apache-2.0. This file documents third-party softwa
 | `monaco-editor` | YAML editing component foundation | MIT | https://github.com/microsoft/monaco-editor |
 | `js-yaml` | YAML parsing and serialization | MIT | https://github.com/nodeca/js-yaml |
 | `ajv` | JSON Schema validation | MIT | https://github.com/ajv-validator/ajv |
-| `react-svg-pan-zoom` | Interactive SVG preview navigation | ISC | https://github.com/chrvadala/react-svg-pan-zoom |
+| `react-svg-pan-zoom` | Interactive SVG preview navigation | MIT | https://github.com/chrvadala/react-svg-pan-zoom |
 
 ## Build and development tooling (not redistributed)
 

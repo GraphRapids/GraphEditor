@@ -18,6 +18,8 @@
   - `index.html`
   - `src/main.jsx`
   - `src/App.jsx`
+  - `src/App.test.jsx`
+  - `src/test/setup.js`
   - `src/styles.css`
 - YAML editor: Monaco via `@monaco-editor/react` (`defaultLanguage="yaml"`).
 - SVG preview: `react-svg-pan-zoom` (`UncontrolledReactSVGPanZoom`).
@@ -31,7 +33,7 @@ Use the API described in http://127.0.0.1:8000/openapi.json
 - Run dev server from repository root: `npm run dev`
 - The web UI is served at `http://127.0.0.1:9000`.
 - Vite proxies `/api/*` to `http://127.0.0.1:8000/*`.
-- Use `.venv` for Python-only tasks (e.g. `server.py` if explicitly needed).
+- Use `.venv` only when running Python tooling tasks for repository maintenance.
 
 ## Current UI Behavior
 - Layout: left pane (editor) is ~1/4 width, right pane (preview) is ~3/4 width on desktop.
@@ -45,6 +47,11 @@ Use the API described in http://127.0.0.1:8000/openapi.json
 - Preview rendering:
   - API SVG is displayed inside pan/zoom viewer via blob URL image.
   - Preserve viewer zoom/pan state across rerenders (avoid remount-reset behavior).
+  - Auto-fit is restored when the user triggers toolbar fit.
+
+## Testing
+- Test framework: Vitest + Testing Library.
+- Run: `npm run test` (includes coverage thresholds).
 
 ## Public Repo Consistency
 - Keep governance files aligned with other GraphRapids repositories:
