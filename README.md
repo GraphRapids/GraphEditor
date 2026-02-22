@@ -1,32 +1,152 @@
 # GraphEditor
-Web-based YAML editor with near real-time SVG preview.
 
-## Run locally
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+[![CI](https://github.com/GraphRapids/GraphEditor/actions/workflows/ci.yml/badge.svg)](https://github.com/GraphRapids/GraphEditor/actions/workflows/ci.yml)
+[![Tests](https://github.com/GraphRapids/GraphEditor/actions/workflows/test.yml/badge.svg)](https://github.com/GraphRapids/GraphEditor/actions/workflows/test.yml)
+[![Secret Scan](https://github.com/GraphRapids/GraphEditor/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/GraphRapids/GraphEditor/actions/workflows/gitleaks.yml)
 
-1. Install JS dependencies:
-   `npm install`
-2. Start Vite dev server:
-   `npm run dev`
-3. Open:
-   `http://127.0.0.1:9000`
+GraphEditor is the web authoring UI in the GraphRapids suite.
 
-The Vite dev server proxies API calls through `/api/*` to `http://127.0.0.1:8000/*`.
-
-## Project structure
-
-- `index.html` - Vite entry HTML
-- `src/main.jsx` - React bootstrap
-- `src/App.jsx` - GraphEditor app logic
-- `src/styles.css` - UI styles
-- `vite.config.js` - dev server config and API proxy
-- `server.py` - optional lightweight Python static/proxy server (legacy)
+It provides a Monaco-based YAML editor and live SVG preview pipeline backed by GraphAPI.
 
 ## Features
 
-- React single-page UI with split layout:
-  - Left: Monaco YAML editor
-  - Right: rendered SVG preview
-- YAML to JSON conversion + JSON Schema validation via `/schemas/minimal-input.schema.json`
-- Debounced + abortable render calls to `/render/svg` using `AbortController`
-- Pan/zoom/fit via `react-svg-pan-zoom` toolbar
-- SVG download button
+- Monaco YAML editor with near real-time rendering
+- JSON Schema validation against GraphAPI schema endpoint
+- Debounced and abortable render requests to avoid stale preview updates
+- Interactive SVG pan/zoom/fit toolbar via `react-svg-pan-zoom`
+- Built-in light/dark mode toggle with SVG color-scheme synchronization
+- Download rendered SVG output
+
+## Requirements
+
+- Node.js `>=20`
+- npm `>=10`
+- GraphAPI running locally (default: `http://127.0.0.1:8000`)
+
+## Installation
+
+```bash
+npm install
+```
+
+## Quick Start
+
+```bash
+# Start GraphAPI first (in its own repository)
+# then run GraphEditor
+npm run dev
+```
+
+Open:
+
+- `http://127.0.0.1:9000`
+
+## CLI Reference
+
+GraphEditor is a browser application and does not expose a CLI.
+
+Available npm scripts:
+
+```bash
+npm run dev      # local development server (port 9000)
+npm run build    # production build
+npm run preview  # preview built assets
+```
+
+## Input Expectations
+
+GraphEditor validates and submits minimal graph input accepted by GraphAPI.
+
+Typical structure:
+
+- `nodes[]`: string or object (`name`, `type`, `id`, nested `nodes`, nested `links`)
+- `links[]`: string or object (`id`, `label`, `type`, `from`, `to`)
+
+Schema source:
+
+- `/api/schemas/minimal-input.schema.json` (proxied to GraphAPI)
+
+## API Integration
+
+During development, Vite proxies:
+
+- `/api/*` -> `http://127.0.0.1:8000/*`
+
+Main endpoints used:
+
+- `GET /api/schemas/minimal-input.schema.json`
+- `POST /api/render/svg`
+
+## Troubleshooting
+
+### `Schema load failed`
+
+Confirm GraphAPI is running and reachable at `http://127.0.0.1:8000`.
+
+### Preview is blank
+
+Check GraphAPI response body and browser console. Ensure the response contains valid `<svg ...>...</svg>` output.
+
+### `Address already in use` on port 9000
+
+Stop the existing process on `127.0.0.1:9000` or adjust `vite.config.js` server port.
+
+## Development
+
+```bash
+npm install
+npm run build
+```
+
+Optional legacy local server (Python) remains available:
+
+```bash
+source .venv/bin/activate
+python server.py
+```
+
+## Project Layout
+
+```text
+index.html                    # Vite entry HTML
+src/main.jsx                  # React bootstrap
+src/App.jsx                   # Application logic
+src/styles.css                # UI styling
+vite.config.js                # Dev server and /api proxy
+server.py                     # Optional legacy static/proxy server
+.github/workflows/            # CI, tests, release, secret scanning
+```
+
+## Governance and Community
+
+- Security policy: `SECURITY.md`
+- Contribution guide: `CONTRIBUTING.md`
+- Code of conduct: `CODE_OF_CONDUCT.md`
+- Changelog: `CHANGELOG.md`
+- Release process: `RELEASE.md`
+
+## Automation
+
+- CI build checks: `.github/workflows/ci.yml`
+- Test/build matrix: `.github/workflows/test.yml`
+- Secret scanning (gitleaks): `.github/workflows/gitleaks.yml`
+- Tagged releases: `.github/workflows/release.yml`
+- Dependency updates: `.github/dependabot.yml`
+
+## GraphRapids Suite
+
+GraphEditor is part of GraphRapids:
+
+- `GraphLoom`: graph enrichment pipeline
+- `GraphRender`: SVG rendering engine
+- `GraphAPI`: API service integrating GraphLoom + GraphRender
+- `GraphTheme`: shared theming (in progress)
+
+## Third-Party Notices
+
+See `THIRD_PARTY_NOTICES.md` for dependency and license notices.
+
+## License
+
+GraphEditor is licensed under Apache License 2.0. See `LICENSE`.

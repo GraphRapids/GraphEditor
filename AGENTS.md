@@ -46,6 +46,20 @@ Use the API described in http://127.0.0.1:8000/openapi.json
   - API SVG is displayed inside pan/zoom viewer via blob URL image.
   - Preserve viewer zoom/pan state across rerenders (avoid remount-reset behavior).
 
+## Public Repo Consistency
+- Keep governance files aligned with other GraphRapids repositories:
+  - `CHANGELOG.md`
+  - `CODE_OF_CONDUCT.md`
+  - `CONTRIBUTING.md`
+  - `RELEASE.md`
+  - `SECURITY.md`
+  - `THIRD_PARTY_NOTICES.md`
+- Keep workflow naming consistent:
+  - `.github/workflows/ci.yml`
+  - `.github/workflows/test.yml`
+  - `.github/workflows/gitleaks.yml`
+  - `.github/workflows/release.yml`
+
 ## Coding Rules
 - Prefer small, reviewable changes.
 - Avoid adding dependencies unless necessary.
