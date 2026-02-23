@@ -8,6 +8,7 @@ import { UncontrolledReactSVGPanZoom, fitToViewer as fitValueToViewer } from 're
 const API_BASE = '/api';
 const DEBOUNCE_MS = 450;
 const STRING_COERCION_KEYS = new Set(['name', 'label', 'id', 'from', 'to']);
+const COLLECTION_KEYS = new Set(['nodes', 'links', 'edges']);
 const ROOT_KEYS = ['nodes', 'links', 'edges'];
 const NODE_KEYS = ['name', 'type', 'id', 'nodes', 'links'];
 const LINK_KEYS = ['from', 'to', 'label', 'type', 'id'];
@@ -304,6 +305,7 @@ export default function App() {
   const suppressViewEventsRef = useRef(false);
   const [svgObjectUrl, setSvgObjectUrl] = useState('');
   const completionProviderRef = useRef(null);
+  const tabSuggestListenerRef = useRef(null);
 
   const svgDoc = useMemo(() => parseSvgDocument(svgText), [svgText]);
   const themedSvgText = useMemo(() => applySvgColorScheme(svgText, theme), [svgText, theme]);
@@ -481,6 +483,9 @@ export default function App() {
       if (completionProviderRef.current) {
         completionProviderRef.current.dispose();
       }
+      if (tabSuggestListenerRef.current) {
+        tabSuggestListenerRef.current.dispose();
+      }
       if (abortRef.current) {
         abortRef.current.abort();
       }
@@ -520,9 +525,12 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
-  function onEditorMount(_editor, monaco) {
+  function onEditorMount(editor, monaco) {
     if (completionProviderRef.current) {
       completionProviderRef.current.dispose();
+    }
+    if (tabSuggestListenerRef.current) {
+      tabSuggestListenerRef.current.dispose();
     }
     completionProviderRef.current = monaco.languages.registerCompletionItemProvider('yaml', {
       triggerCharacters: [' ', ':'],
@@ -540,16 +548,46 @@ export default function App() {
           context.kind === 'nodeTypeValue'
             ? monaco.languages.CompletionItemKind.Value
             : monaco.languages.CompletionItemKind.Property;
+        const currentLine =
+          typeof model.getLineContent === 'function' ? model.getLineContent(position.lineNumber) : '';
+        const currentIndent = lineIndent(currentLine);
+        const childIndent = ' '.repeat(currentIndent + 2);
         return {
           suggestions: suggestions.map((item) => ({
+            ...(context.kind !== 'nodeTypeValue' && COLLECTION_KEYS.has(item)
+              ? {
+                  insertText: `${item === 'edges' ? 'links' : item}:\n${childIndent}$0`,
+                  insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                }
+              : {
+                  insertText:
+                    context.kind === 'nodeTypeValue'
+                      ? item
+                      : `${item === 'edges' ? 'links' : item}: `,
+                }),
             label: item,
             kind,
-            insertText:
-              context.kind === 'nodeTypeValue' ? item : `${item === 'edges' ? 'links' : item}: `,
             range,
+            command:
+              context.kind !== 'nodeTypeValue' && item === 'type'
+                ? {
+                    id: 'editor.action.triggerSuggest',
+                    title: 'Trigger Type Suggestions',
+                  }
+                : undefined,
           })),
         };
       },
+    });
+
+    tabSuggestListenerRef.current = editor.onKeyDown((event) => {
+      if (event.keyCode !== monaco.KeyCode.Tab) {
+        return;
+      }
+      // Let Monaco apply indentation first, then open suggest at new cursor position.
+      window.setTimeout(() => {
+        editor.trigger('keyboard', 'editor.action.triggerSuggest', {});
+      }, 0);
     });
   }
 

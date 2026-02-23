@@ -17,11 +17,17 @@ const {
   registerCompletionProviderSpy,
   completionProviderState,
   completionProviderDisposeSpy,
+  editorKeyDownState,
+  editorTriggerSpy,
+  keyDownListenerDisposeSpy,
 } = vi.hoisted(() => ({
   fitToViewerSpy: vi.fn(),
   registerCompletionProviderSpy: vi.fn(),
   completionProviderState: { provider: null },
   completionProviderDisposeSpy: vi.fn(),
+  editorKeyDownState: { handler: null },
+  editorTriggerSpy: vi.fn(),
+  keyDownListenerDisposeSpy: vi.fn(),
 }));
 
 vi.mock('@monaco-editor/react', async () => {
@@ -30,6 +36,9 @@ vi.mock('@monaco-editor/react', async () => {
     default: ({ value, onChange, onMount }) => {
     React.useEffect(() => {
       const fakeMonaco = {
+        KeyCode: {
+          Tab: 2,
+        },
         Range: class {
           constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
             this.startLineNumber = startLineNumber;
@@ -43,6 +52,9 @@ vi.mock('@monaco-editor/react', async () => {
             Value: 1,
             Property: 2,
           },
+          CompletionItemInsertTextRule: {
+            InsertAsSnippet: 4,
+          },
           registerCompletionItemProvider: (language, provider) => {
             registerCompletionProviderSpy(language);
             completionProviderState.provider = provider;
@@ -50,7 +62,14 @@ vi.mock('@monaco-editor/react', async () => {
           },
         },
       };
-      onMount?.({}, fakeMonaco);
+      const fakeEditor = {
+        onKeyDown: (handler) => {
+          editorKeyDownState.handler = handler;
+          return { dispose: keyDownListenerDisposeSpy };
+        },
+        trigger: (...args) => editorTriggerSpy(...args),
+      };
+      onMount?.(fakeEditor, fakeMonaco);
     }, [onMount]);
 
     return (
@@ -226,7 +245,10 @@ describe('App', () => {
     fitToViewerSpy.mockReset();
     registerCompletionProviderSpy.mockReset();
     completionProviderDisposeSpy.mockReset();
+    editorTriggerSpy.mockReset();
+    keyDownListenerDisposeSpy.mockReset();
     completionProviderState.provider = null;
+    editorKeyDownState.handler = null;
     vi.mocked(URL.createObjectURL).mockImplementation(() => 'blob:mock-url');
     vi.mocked(URL.revokeObjectURL).mockImplementation(() => {});
   });
@@ -410,6 +432,20 @@ describe('App', () => {
 
     unmount();
     expect(completionProviderDisposeSpy).toHaveBeenCalled();
+    expect(keyDownListenerDisposeSpy).toHaveBeenCalled();
+  });
+
+  it('triggers suggest when Tab key is pressed in Monaco', async () => {
+    installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
+    render(<App />);
+    await flushDebounce();
+
+    expect(editorKeyDownState.handler).toBeTruthy();
+    await act(async () => {
+      editorKeyDownState.handler({ keyCode: 2 });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(editorTriggerSpy).toHaveBeenCalledWith('keyboard', 'editor.action.triggerSuggest', {});
   });
 
   it('completion provider suggests node keys and node types in context', async () => {
@@ -421,24 +457,45 @@ describe('App', () => {
     expect(provider).toBeTruthy();
 
     const keyResult = provider.provideCompletionItems(
-      { getValue: () => 'nodes:\n  - na' },
+      { getValue: () => 'nodes:\n  - na', getLineContent: () => '  - na' },
       { lineNumber: 2, column: 7 }
     );
     const nameSuggestion = keyResult.suggestions.find((item) => item.label === 'name');
     expect(nameSuggestion).toBeTruthy();
     expect(nameSuggestion.insertText).toBe('name: ');
+    const typeKeyResult = provider.provideCompletionItems(
+      { getValue: () => 'nodes:\n  - ty', getLineContent: () => '  - ty' },
+      { lineNumber: 2, column: 7 }
+    );
+    const typeKeySuggestion = typeKeyResult.suggestions.find((item) => item.label === 'type');
+    expect(typeKeySuggestion.command).toEqual({
+      id: 'editor.action.triggerSuggest',
+      title: 'Trigger Type Suggestions',
+    });
 
     const typeResult = provider.provideCompletionItems(
-      { getValue: () => 'nodes:\n  - name: A\n    type: ro' },
+      { getValue: () => 'nodes:\n  - name: A\n    type: ro', getLineContent: () => '    type: ro' },
       { lineNumber: 3, column: 13 }
     );
     const routerSuggestion = typeResult.suggestions.find((item) => item.label === 'router');
     expect(routerSuggestion).toBeTruthy();
     expect(routerSuggestion.insertText).toBe('router');
 
-    const rootResult = provider.provideCompletionItems({ getValue: () => 'ed' }, { lineNumber: 1, column: 3 });
+    const rootResult = provider.provideCompletionItems(
+      { getValue: () => 'ed', getLineContent: () => 'ed' },
+      { lineNumber: 1, column: 3 }
+    );
     const edgeAlias = rootResult.suggestions.find((item) => item.label === 'edges');
-    expect(edgeAlias.insertText).toBe('links: ');
+    expect(edgeAlias.insertText).toBe('links:\n  $0');
+    expect(edgeAlias.insertTextRules).toBe(4);
+
+    const nodesResult = provider.provideCompletionItems(
+      { getValue: () => 'no', getLineContent: () => 'no' },
+      { lineNumber: 1, column: 3 }
+    );
+    const nodesSuggestion = nodesResult.suggestions.find((item) => item.label === 'nodes');
+    expect(nodesSuggestion.insertText).toBe('nodes:\n  $0');
+    expect(nodesSuggestion.insertTextRules).toBe(4);
   });
 });
 
