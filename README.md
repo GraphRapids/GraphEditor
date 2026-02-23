@@ -12,6 +12,7 @@ It provides a Monaco-based YAML editor and live SVG preview pipeline backed by G
 ## Features
 
 - Monaco YAML editor with near real-time rendering
+- Context-aware YAML autocomplete for graph keys and node types
 - JSON Schema validation against GraphAPI schema endpoint
 - Debounced and abortable render requests to avoid stale preview updates
 - Interactive SVG pan/zoom/fit toolbar via `react-svg-pan-zoom`
@@ -67,6 +68,22 @@ Typical structure:
 Schema source:
 
 - `/api/schemas/minimal-input.schema.json` (proxied to GraphAPI)
+
+### YAML Autocomplete
+
+Autocomplete is enabled in the Monaco YAML editor with context-aware suggestions:
+
+- Root keys: `nodes`, `links` (`edges` is accepted as an alias suggestion and inserts `links`)
+- Node object keys: `name`, `type`, `id`, `nodes`, `links`
+- Link object keys: `from`, `to`, `label`, `type`, `id`
+- Node `type` values: predefined GraphLoom node types (for example `router`, `switch`, `firewall`, `cloud`, etc.)
+
+Insertion behavior:
+
+- Key completions insert `key: `
+- Collection keys (`nodes`, `links`, `edges`) insert a multiline snippet with indentation (`key:\n  `)
+- Selecting `type` triggers follow-up suggestions so node type values pop immediately
+- Pressing `Tab` also triggers suggest after indentation is inserted
 
 ## API Integration
 

@@ -486,8 +486,12 @@ describe('App', () => {
       { lineNumber: 1, column: 3 }
     );
     const edgeAlias = rootResult.suggestions.find((item) => item.label === 'edges');
-    expect(edgeAlias.insertText).toBe('links:\n  $0');
+    expect(edgeAlias.insertText).toBe('links:\n  - from: $0');
     expect(edgeAlias.insertTextRules).toBe(4);
+    expect(edgeAlias.command).toEqual({
+      id: 'editor.action.triggerSuggest',
+      title: 'Trigger Link Suggestions',
+    });
 
     const nodesResult = provider.provideCompletionItems(
       { getValue: () => 'no', getLineContent: () => 'no' },
@@ -496,6 +500,17 @@ describe('App', () => {
     const nodesSuggestion = nodesResult.suggestions.find((item) => item.label === 'nodes');
     expect(nodesSuggestion.insertText).toBe('nodes:\n  $0');
     expect(nodesSuggestion.insertTextRules).toBe(4);
+
+    const linksResult = provider.provideCompletionItems(
+      { getValue: () => 'li', getLineContent: () => 'li' },
+      { lineNumber: 1, column: 3 }
+    );
+    const linksSuggestion = linksResult.suggestions.find((item) => item.label === 'links');
+    expect(linksSuggestion.insertText).toBe('links:\n  - from: $0');
+    expect(linksSuggestion.command).toEqual({
+      id: 'editor.action.triggerSuggest',
+      title: 'Trigger Link Suggestions',
+    });
   });
 });
 

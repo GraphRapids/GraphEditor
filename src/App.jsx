@@ -551,31 +551,40 @@ export default function App() {
         const currentLine =
           typeof model.getLineContent === 'function' ? model.getLineContent(position.lineNumber) : '';
         const currentIndent = lineIndent(currentLine);
-        const childIndent = ' '.repeat(currentIndent + 2);
+        const baseIndent = context.section === 'root' ? 0 : currentIndent;
+        const childIndent = ' '.repeat(baseIndent + 2);
         return {
-          suggestions: suggestions.map((item) => ({
-            ...(context.kind !== 'nodeTypeValue' && COLLECTION_KEYS.has(item)
-              ? {
-                  insertText: `${item === 'edges' ? 'links' : item}:\n${childIndent}$0`,
-                  insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-                }
-              : {
-                  insertText:
-                    context.kind === 'nodeTypeValue'
-                      ? item
-                      : `${item === 'edges' ? 'links' : item}: `,
-                }),
-            label: item,
-            kind,
-            range,
-            command:
-              context.kind !== 'nodeTypeValue' && item === 'type'
+          suggestions: suggestions.map((item) => {
+            const canonicalKey = item === 'edges' ? 'links' : item;
+            const isKeyCompletion = context.kind !== 'nodeTypeValue';
+            const isCollectionKey = isKeyCompletion && COLLECTION_KEYS.has(item);
+            const isLinkCollectionKey = isCollectionKey && canonicalKey === 'links';
+
+            return {
+              ...(isCollectionKey
                 ? {
-                    id: 'editor.action.triggerSuggest',
-                    title: 'Trigger Type Suggestions',
+                    insertText: isLinkCollectionKey
+                      ? `${canonicalKey}:\n${childIndent}- from: $0`
+                      : `${canonicalKey}:\n${childIndent}$0`,
+                    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
                   }
-                : undefined,
-          })),
+                : {
+                    insertText: isKeyCompletion ? `${canonicalKey}: ` : item,
+                  }),
+              label: item,
+              kind,
+              range,
+              command:
+                (isKeyCompletion && item === 'type') || isLinkCollectionKey
+                  ? {
+                      id: 'editor.action.triggerSuggest',
+                      title: isLinkCollectionKey
+                        ? 'Trigger Link Suggestions'
+                        : 'Trigger Type Suggestions',
+                    }
+                  : undefined,
+            };
+          }),
         };
       },
     });
