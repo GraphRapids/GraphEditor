@@ -511,6 +511,15 @@ describe('App', () => {
       id: 'editor.action.triggerSuggest',
       title: 'Trigger Link Suggestions',
     });
+
+    const indentedRootLinksResult = provider.provideCompletionItems(
+      { getValue: () => 'nodes:\n  - name: A\n  li', getLineContent: () => '  li' },
+      { lineNumber: 3, column: 5 }
+    );
+    const indentedRootLinksSuggestion = indentedRootLinksResult.suggestions.find(
+      (item) => item.label === 'links'
+    );
+    expect(indentedRootLinksSuggestion.insertText).toBe('links:\n  - from: $0');
   });
 });
 
@@ -579,6 +588,13 @@ describe('helpers', () => {
     const context = getYamlAutocompleteContext(yaml, 2, 7);
     expect(context).toEqual({ kind: 'key', section: 'links', prefix: 'la' });
     expect(getYamlAutocompleteSuggestions(context)).toEqual(['label']);
+  });
+
+  it('getYamlAutocompleteContext treats indented root key line as root context', () => {
+    const yaml = 'nodes:\n  - name: A\n  li';
+    const context = getYamlAutocompleteContext(yaml, 3, 5);
+    expect(context).toEqual({ kind: 'key', section: 'root', prefix: 'li' });
+    expect(getYamlAutocompleteSuggestions(context)).toEqual(['links']);
   });
 
   it('getYamlAutocompleteContext returns node type value context', () => {

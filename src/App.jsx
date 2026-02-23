@@ -225,10 +225,10 @@ function inferYamlSection(lines, lineIndex, indent) {
     }
     const sectionIndent = match[1].length;
     if (sectionIndent < indent || i === lineIndex) {
-      return match[2];
+      return { section: match[2], sectionIndent };
     }
   }
-  return 'root';
+  return { section: 'root', sectionIndent: 0 };
 }
 
 export function getYamlAutocompleteContext(text, lineNumber, column) {
@@ -239,7 +239,13 @@ export function getYamlAutocompleteContext(text, lineNumber, column) {
   const leftText = line.slice(0, safeColumn - 1);
   const trimmedLeft = leftText.trim();
   const indent = lineIndent(line);
-  const section = inferYamlSection(lines, safeLineNumber - 1, indent);
+  const sectionInfo = inferYamlSection(lines, safeLineNumber - 1, indent);
+  let section = sectionInfo.section;
+  // If the user is on an indented root-looking line (e.g. after pressing Tab),
+  // keep autocomplete at root level instead of forcing nested section keys.
+  if (section !== 'root' && indent === sectionInfo.sectionIndent + 2 && !trimmedLeft.startsWith('-')) {
+    section = 'root';
+  }
 
   const dashTypeMatch = trimmedLeft.match(/^-\s*type:\s*([a-zA-Z0-9_-]*)$/);
   const typeMatch = trimmedLeft.match(/^type:\s*([a-zA-Z0-9_-]*)$/);
