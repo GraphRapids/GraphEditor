@@ -2,7 +2,13 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import App, { applySvgColorScheme, extractSvg, formatAjvErrors, parseSvgDocument } from './App';
+import App, {
+  applySvgColorScheme,
+  extractSvg,
+  formatAjvErrors,
+  normalizeGraphInputForValidation,
+  parseSvgDocument,
+} from './App';
 
 const { fitToViewerSpy } = vi.hoisted(() => ({
   fitToViewerSpy: vi.fn(),
@@ -91,8 +97,46 @@ const MINIMAL_SCHEMA = {
   type: 'object',
   required: ['nodes', 'links'],
   properties: {
-    nodes: { type: 'array' },
-    links: { type: 'array' },
+    nodes: {
+      type: 'array',
+      items: {
+        anyOf: [
+          { type: 'string' },
+          {
+            type: 'object',
+            required: ['name'],
+            properties: {
+              name: { type: 'string' },
+              id: { type: 'string' },
+              type: { type: 'string' },
+              nodes: { type: 'array' },
+              links: { type: 'array' },
+            },
+            additionalProperties: true,
+          },
+        ],
+      },
+    },
+    links: {
+      type: 'array',
+      items: {
+        anyOf: [
+          { type: 'string' },
+          {
+            type: 'object',
+            required: ['from', 'to'],
+            properties: {
+              from: { type: 'string' },
+              to: { type: 'string' },
+              id: { type: 'string' },
+              label: { type: 'string' },
+              type: { type: 'string' },
+            },
+            additionalProperties: true,
+          },
+        ],
+      },
+    },
   },
   additionalProperties: false,
 };
@@ -284,6 +328,34 @@ describe('App', () => {
 
     clickSpy.mockRestore();
   });
+
+  it('coerces numeric label-like fields to strings before schema validation and render', async () => {
+    let sawCoercedPayload = false;
+    const fetchMock = installFetchMock(async (_url, init) => {
+      const payload = JSON.parse(init.body);
+      if (payload.nodes?.[0]?.name === '100') {
+        expect(payload.links[0].from).toBe('100');
+        expect(payload.links[0].label).toBe('42');
+        sawCoercedPayload = true;
+      }
+      return svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>');
+    });
+
+    render(<App />);
+    await flushDebounce();
+    await waitFor(() => expect(screen.getByText('Rendered.')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByTestId('monaco-editor'), {
+      target: {
+        value: 'nodes:\n  - name: 100\n  - name: B\nlinks:\n  - from: 100\n    to: B\n    label: 42\n',
+      },
+    });
+    await flushDebounce();
+
+    await waitFor(() => expect(screen.getByText('Rendered.')).toBeInTheDocument());
+    expect(sawCoercedPayload).toBe(true);
+    expect(countRenderCalls(fetchMock)).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe('helpers', () => {
@@ -313,5 +385,17 @@ describe('helpers', () => {
       { instancePath: '', message: 'must be object' },
     ]);
     expect(errors).toEqual(['/nodes/0/name: must be string', '/: must be object']);
+  });
+
+  it('normalizeGraphInputForValidation coerces nested label-like keys to strings', () => {
+    const normalized = normalizeGraphInputForValidation({
+      nodes: [{ name: 10, nodes: [{ name: true }] }],
+      links: [{ from: 1, to: 2, label: 300, id: 7 }],
+    });
+
+    expect(normalized).toEqual({
+      nodes: [{ name: '10', nodes: [{ name: 'true' }] }],
+      links: [{ from: '1', to: '2', label: '300', id: '7' }],
+    });
   });
 });

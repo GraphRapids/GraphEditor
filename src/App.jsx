@@ -7,6 +7,7 @@ import { UncontrolledReactSVGPanZoom, fitToViewer as fitValueToViewer } from 're
 
 const API_BASE = '/api';
 const DEBOUNCE_MS = 450;
+const STRING_COERCION_KEYS = new Set(['name', 'label', 'id', 'from', 'to']);
 
 const INITIAL_YAML = `nodes:
   - name: A
@@ -125,6 +126,26 @@ export function applySvgColorScheme(svgText, theme) {
   return svgText.replace(openTagMatch[0], `<svg${nextAttrs}>`);
 }
 
+export function normalizeGraphInputForValidation(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeGraphInputForValidation(item));
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value).reduce((acc, [key, fieldValue]) => {
+      if (
+        STRING_COERCION_KEYS.has(key) &&
+        (typeof fieldValue === 'number' || typeof fieldValue === 'boolean' || typeof fieldValue === 'bigint')
+      ) {
+        acc[key] = String(fieldValue);
+        return acc;
+      }
+      acc[key] = normalizeGraphInputForValidation(fieldValue);
+      return acc;
+    }, {});
+  }
+  return value;
+}
+
 export default function App() {
   const [yamlText, setYamlText] = useState(INITIAL_YAML);
   const [schema, setSchema] = useState(null);
@@ -199,8 +220,9 @@ export default function App() {
           return;
         }
 
+        const normalized = normalizeGraphInputForValidation(parsed);
         const validate = validateRef.current;
-        const isValid = validate(parsed);
+        const isValid = validate(normalized);
         if (!isValid) {
           setErrors(formatAjvErrors(validate.errors));
           setStatus('JSON schema validation failed.');
@@ -218,7 +240,7 @@ export default function App() {
         const response = await fetch(`${API_BASE}/render/svg`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(parsed),
+          body: JSON.stringify(normalized),
           signal: controller.signal,
         });
 
