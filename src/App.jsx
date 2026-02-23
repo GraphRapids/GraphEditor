@@ -544,7 +544,8 @@ export default function App() {
           suggestions: suggestions.map((item) => ({
             label: item,
             kind,
-            insertText: item === 'edges' ? 'links' : item,
+            insertText:
+              context.kind === 'nodeTypeValue' ? item : `${item === 'edges' ? 'links' : item}: `,
             range,
           })),
         };

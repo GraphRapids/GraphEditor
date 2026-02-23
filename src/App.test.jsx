@@ -424,17 +424,21 @@ describe('App', () => {
       { getValue: () => 'nodes:\n  - na' },
       { lineNumber: 2, column: 7 }
     );
-    expect(keyResult.suggestions.map((item) => item.label)).toContain('name');
+    const nameSuggestion = keyResult.suggestions.find((item) => item.label === 'name');
+    expect(nameSuggestion).toBeTruthy();
+    expect(nameSuggestion.insertText).toBe('name: ');
 
     const typeResult = provider.provideCompletionItems(
       { getValue: () => 'nodes:\n  - name: A\n    type: ro' },
       { lineNumber: 3, column: 13 }
     );
-    expect(typeResult.suggestions.map((item) => item.label)).toContain('router');
+    const routerSuggestion = typeResult.suggestions.find((item) => item.label === 'router');
+    expect(routerSuggestion).toBeTruthy();
+    expect(routerSuggestion.insertText).toBe('router');
 
     const rootResult = provider.provideCompletionItems({ getValue: () => 'ed' }, { lineNumber: 1, column: 3 });
     const edgeAlias = rootResult.suggestions.find((item) => item.label === 'edges');
-    expect(edgeAlias.insertText).toBe('links');
+    expect(edgeAlias.insertText).toBe('links: ');
   });
 });
 
