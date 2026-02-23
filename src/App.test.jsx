@@ -6,24 +6,64 @@ import App, {
   applySvgColorScheme,
   extractSvg,
   formatAjvErrors,
+  getYamlAutocompleteContext,
+  getYamlAutocompleteSuggestions,
   normalizeGraphInputForValidation,
   parseSvgDocument,
 } from './App';
 
-const { fitToViewerSpy } = vi.hoisted(() => ({
+const {
+  fitToViewerSpy,
+  registerCompletionProviderSpy,
+  completionProviderState,
+  completionProviderDisposeSpy,
+} = vi.hoisted(() => ({
   fitToViewerSpy: vi.fn(),
+  registerCompletionProviderSpy: vi.fn(),
+  completionProviderState: { provider: null },
+  completionProviderDisposeSpy: vi.fn(),
 }));
 
-vi.mock('@monaco-editor/react', () => ({
-  default: ({ value, onChange }) => (
-    <textarea
-      data-testid="monaco-editor"
-      value={value}
-      onChange={(event) => onChange?.(event.target.value)}
-      aria-label="Monaco editor"
-    />
-  ),
-}));
+vi.mock('@monaco-editor/react', async () => {
+  const React = await import('react');
+  return {
+    default: ({ value, onChange, onMount }) => {
+    React.useEffect(() => {
+      const fakeMonaco = {
+        Range: class {
+          constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
+            this.startLineNumber = startLineNumber;
+            this.startColumn = startColumn;
+            this.endLineNumber = endLineNumber;
+            this.endColumn = endColumn;
+          }
+        },
+        languages: {
+          CompletionItemKind: {
+            Value: 1,
+            Property: 2,
+          },
+          registerCompletionItemProvider: (language, provider) => {
+            registerCompletionProviderSpy(language);
+            completionProviderState.provider = provider;
+            return { dispose: completionProviderDisposeSpy };
+          },
+        },
+      };
+      onMount?.({}, fakeMonaco);
+    }, [onMount]);
+
+    return (
+      <textarea
+        data-testid="monaco-editor"
+        value={value}
+        onChange={(event) => onChange?.(event.target.value)}
+        aria-label="Monaco editor"
+      />
+    );
+    },
+  };
+});
 
 vi.mock('react-svg-pan-zoom', async () => {
   const React = await import('react');
@@ -184,6 +224,9 @@ describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fitToViewerSpy.mockReset();
+    registerCompletionProviderSpy.mockReset();
+    completionProviderDisposeSpy.mockReset();
+    completionProviderState.provider = null;
     vi.mocked(URL.createObjectURL).mockImplementation(() => 'blob:mock-url');
     vi.mocked(URL.revokeObjectURL).mockImplementation(() => {});
   });
@@ -356,6 +399,43 @@ describe('App', () => {
     expect(sawCoercedPayload).toBe(true);
     expect(countRenderCalls(fetchMock)).toBeGreaterThanOrEqual(2);
   });
+
+  it('registers yaml completion provider on editor mount and disposes on unmount', async () => {
+    installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
+    const { unmount } = render(<App />);
+    await flushDebounce();
+
+    expect(registerCompletionProviderSpy).toHaveBeenCalledWith('yaml');
+    expect(completionProviderState.provider).toBeTruthy();
+
+    unmount();
+    expect(completionProviderDisposeSpy).toHaveBeenCalled();
+  });
+
+  it('completion provider suggests node keys and node types in context', async () => {
+    installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
+    render(<App />);
+    await flushDebounce();
+
+    const provider = completionProviderState.provider;
+    expect(provider).toBeTruthy();
+
+    const keyResult = provider.provideCompletionItems(
+      { getValue: () => 'nodes:\n  - na' },
+      { lineNumber: 2, column: 7 }
+    );
+    expect(keyResult.suggestions.map((item) => item.label)).toContain('name');
+
+    const typeResult = provider.provideCompletionItems(
+      { getValue: () => 'nodes:\n  - name: A\n    type: ro' },
+      { lineNumber: 3, column: 13 }
+    );
+    expect(typeResult.suggestions.map((item) => item.label)).toContain('router');
+
+    const rootResult = provider.provideCompletionItems({ getValue: () => 'ed' }, { lineNumber: 1, column: 3 });
+    const edgeAlias = rootResult.suggestions.find((item) => item.label === 'edges');
+    expect(edgeAlias.insertText).toBe('links');
+  });
 });
 
 describe('helpers', () => {
@@ -397,5 +477,38 @@ describe('helpers', () => {
       nodes: [{ name: '10', nodes: [{ name: 'true' }] }],
       links: [{ from: '1', to: '2', label: '300', id: '7' }],
     });
+  });
+
+  it('getYamlAutocompleteContext returns root key context', () => {
+    const yaml = 'no';
+    const context = getYamlAutocompleteContext(yaml, 1, 3);
+    expect(context).toEqual({ kind: 'key', section: 'root', prefix: 'no' });
+    expect(getYamlAutocompleteSuggestions(context)).toEqual(['nodes']);
+  });
+
+  it('getYamlAutocompleteSuggestions supports edges alias at root', () => {
+    const context = { kind: 'key', section: 'root', prefix: 'ed' };
+    expect(getYamlAutocompleteSuggestions(context)).toEqual(['edges']);
+  });
+
+  it('getYamlAutocompleteContext returns node key context under nodes section', () => {
+    const yaml = 'nodes:\n  - na';
+    const context = getYamlAutocompleteContext(yaml, 2, 7);
+    expect(context).toEqual({ kind: 'key', section: 'nodes', prefix: 'na' });
+    expect(getYamlAutocompleteSuggestions(context)).toEqual(['name']);
+  });
+
+  it('getYamlAutocompleteContext returns link key context under links section', () => {
+    const yaml = 'links:\n  - la';
+    const context = getYamlAutocompleteContext(yaml, 2, 7);
+    expect(context).toEqual({ kind: 'key', section: 'links', prefix: 'la' });
+    expect(getYamlAutocompleteSuggestions(context)).toEqual(['label']);
+  });
+
+  it('getYamlAutocompleteContext returns node type value context', () => {
+    const yaml = 'nodes:\n  - name: A\n    type: ro';
+    const context = getYamlAutocompleteContext(yaml, 3, 13);
+    expect(context).toEqual({ kind: 'nodeTypeValue', section: 'nodes', prefix: 'ro' });
+    expect(getYamlAutocompleteSuggestions(context)).toContain('router');
   });
 });

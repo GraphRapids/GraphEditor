@@ -8,6 +8,70 @@ import { UncontrolledReactSVGPanZoom, fitToViewer as fitValueToViewer } from 're
 const API_BASE = '/api';
 const DEBOUNCE_MS = 450;
 const STRING_COERCION_KEYS = new Set(['name', 'label', 'id', 'from', 'to']);
+const ROOT_KEYS = ['nodes', 'links', 'edges'];
+const NODE_KEYS = ['name', 'type', 'id', 'nodes', 'links'];
+const LINK_KEYS = ['from', 'to', 'label', 'type', 'id'];
+const NODE_TYPE_SUGGESTIONS = [
+  'router',
+  'switch',
+  'mpls',
+  'vpn',
+  'firewall',
+  'cloud',
+  'datacenter',
+  'azure',
+  'internet',
+  'cpe',
+  'database',
+  'server',
+  'host',
+  'ran',
+  'radio',
+  'splitter',
+  'devices',
+  'satelliteuplink',
+  'satellite',
+  'broadcast',
+  'lan',
+  'diagnostics',
+  'analytics',
+  'monitor',
+  'logging',
+  'iam',
+  'idea',
+  'tools',
+  'cctv',
+  'process',
+  'cooling',
+  'security',
+  'console',
+  'gis',
+  'city',
+  'settlement',
+  'sdu',
+  'mdu',
+  'company',
+  'farm',
+  'airport',
+  'mine',
+  'fieldservice',
+  'facility',
+  'energy',
+  'transmission',
+  'ip',
+  'mobilecore',
+  'access',
+  'operation',
+  'controller',
+  'product',
+  'consumer',
+  'fortinet',
+  'juniper',
+  'ericsson',
+  'huawei',
+  'cisco',
+  'mikrotik',
+];
 
 const INITIAL_YAML = `nodes:
   - name: A
@@ -146,6 +210,80 @@ export function normalizeGraphInputForValidation(value) {
   return value;
 }
 
+function lineIndent(line) {
+  const match = line.match(/^(\s*)/);
+  return match ? match[1].length : 0;
+}
+
+function inferYamlSection(lines, lineIndex, indent) {
+  for (let i = lineIndex; i >= 0; i -= 1) {
+    const text = lines[i];
+    const match = text.match(/^(\s*)(nodes|links)\s*:\s*$/);
+    if (!match) {
+      continue;
+    }
+    const sectionIndent = match[1].length;
+    if (sectionIndent < indent || i === lineIndex) {
+      return match[2];
+    }
+  }
+  return 'root';
+}
+
+export function getYamlAutocompleteContext(text, lineNumber, column) {
+  const lines = text.split('\n');
+  const safeLineNumber = Math.max(1, Math.min(lineNumber, lines.length));
+  const line = lines[safeLineNumber - 1] || '';
+  const safeColumn = Math.max(1, Math.min(column, line.length + 1));
+  const leftText = line.slice(0, safeColumn - 1);
+  const trimmedLeft = leftText.trim();
+  const indent = lineIndent(line);
+  const section = inferYamlSection(lines, safeLineNumber - 1, indent);
+
+  const dashTypeMatch = trimmedLeft.match(/^-\s*type:\s*([a-zA-Z0-9_-]*)$/);
+  const typeMatch = trimmedLeft.match(/^type:\s*([a-zA-Z0-9_-]*)$/);
+  const typeValueMatch = dashTypeMatch || typeMatch;
+  if (typeValueMatch && section === 'nodes') {
+    const prefix = typeValueMatch[1] || '';
+    return { kind: 'nodeTypeValue', section, prefix };
+  }
+
+  const listKeyMatch = trimmedLeft.match(/^-\s*([a-zA-Z_][a-zA-Z0-9_]*)?$/);
+  if (listKeyMatch) {
+    return {
+      kind: 'key',
+      section,
+      prefix: listKeyMatch[1] || '',
+    };
+  }
+  const keyMatch = trimmedLeft.match(/^([a-zA-Z_][a-zA-Z0-9_]*)?$/);
+  if (keyMatch) {
+    return {
+      kind: 'key',
+      section,
+      prefix: keyMatch[1] || '',
+    };
+  }
+  return { kind: 'none', section, prefix: '' };
+}
+
+export function getYamlAutocompleteSuggestions(context) {
+  if (context.kind === 'nodeTypeValue') {
+    return NODE_TYPE_SUGGESTIONS.filter((item) => item.startsWith(context.prefix.toLowerCase()));
+  }
+  if (context.kind !== 'key') {
+    return [];
+  }
+
+  let items = ROOT_KEYS;
+  if (context.section === 'nodes') {
+    items = NODE_KEYS;
+  } else if (context.section === 'links') {
+    items = LINK_KEYS;
+  }
+  return items.filter((item) => item.startsWith(context.prefix.toLowerCase()));
+}
+
 export default function App() {
   const [yamlText, setYamlText] = useState(INITIAL_YAML);
   const [schema, setSchema] = useState(null);
@@ -165,6 +303,7 @@ export default function App() {
   const viewerRef = useRef(null);
   const suppressViewEventsRef = useRef(false);
   const [svgObjectUrl, setSvgObjectUrl] = useState('');
+  const completionProviderRef = useRef(null);
 
   const svgDoc = useMemo(() => parseSvgDocument(svgText), [svgText]);
   const themedSvgText = useMemo(() => applySvgColorScheme(svgText, theme), [svgText, theme]);
@@ -339,6 +478,9 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      if (completionProviderRef.current) {
+        completionProviderRef.current.dispose();
+      }
       if (abortRef.current) {
         abortRef.current.abort();
       }
@@ -378,6 +520,38 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  function onEditorMount(_editor, monaco) {
+    if (completionProviderRef.current) {
+      completionProviderRef.current.dispose();
+    }
+    completionProviderRef.current = monaco.languages.registerCompletionItemProvider('yaml', {
+      triggerCharacters: [' ', ':'],
+      provideCompletionItems(model, position) {
+        const text = model.getValue();
+        const context = getYamlAutocompleteContext(text, position.lineNumber, position.column);
+        const suggestions = getYamlAutocompleteSuggestions(context);
+        if (!suggestions.length) {
+          return { suggestions: [] };
+        }
+
+        const startColumn = Math.max(1, position.column - context.prefix.length);
+        const range = new monaco.Range(position.lineNumber, startColumn, position.lineNumber, position.column);
+        const kind =
+          context.kind === 'nodeTypeValue'
+            ? monaco.languages.CompletionItemKind.Value
+            : monaco.languages.CompletionItemKind.Property;
+        return {
+          suggestions: suggestions.map((item) => ({
+            label: item,
+            kind,
+            insertText: item === 'edges' ? 'links' : item,
+            range,
+          })),
+        };
+      },
+    });
+  }
+
   return (
     <main className="app">
       <section className="pane pane-left">
@@ -391,6 +565,7 @@ export default function App() {
             defaultLanguage="yaml"
             value={yamlText}
             onChange={(value) => setYamlText(value || '')}
+            onMount={onEditorMount}
             theme={theme === 'dark' ? 'vs-dark' : 'light'}
             options={{
               minimap: { enabled: false },
