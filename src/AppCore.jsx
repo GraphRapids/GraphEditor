@@ -12,28 +12,10 @@ const RETRY_DELAY_MS = 180;
 const MAX_RENDER_RETRIES = 1;
 const INDENT_SIZE = 2;
 const MAX_RENDER_CACHE_SIZE = 50;
+const FORBIDDEN_AUTOCOMPLETE_KEYS = new Set(['id']);
 
 const STRING_COERCION_KEYS = new Set(['name', 'label', 'id', 'from', 'to']);
-const COLLECTION_KEYS = new Set(['nodes', 'links', 'edges']);
-const ROOT_KEYS = ['nodes', 'links', 'edges'];
-const NODE_KEYS = ['name', 'type', 'id', 'style', 'nodes', 'links'];
-const LINK_KEYS = ['from', 'to', 'label', 'type', 'id', 'style'];
-const STYLE_KEYS = ['fill', 'stroke', 'strokeWidth', 'opacity', 'fontSize', 'fontWeight', 'lineStyle'];
-
-const REQUIRED_NODE_ORDER = ['name', 'type', 'id', 'style', 'nodes', 'links'];
-const REQUIRED_LINK_ORDER = ['from', 'to', 'label', 'type', 'id', 'style'];
-const REQUIRED_STYLE_ORDER = ['fill', 'stroke', 'strokeWidth', 'opacity', 'fontSize', 'fontWeight', 'lineStyle'];
-
-const AUTOCOMPLETE_STATE = {
-  ROOT_KEY: 'root.key',
-  NODE_KEY: 'node.key',
-  LINK_KEY: 'link.key',
-  STYLE_KEY: 'style.key',
-  STYLE_VALUE: 'style.value',
-  NODE_TYPE_VALUE: 'node.type.value',
-  LINK_ENDPOINT_VALUE: 'link.endpoint.value',
-  NONE: 'none',
-};
+const ROOT_SECTION_ALIASES = new Map([['edges', 'links']]);
 
 const NODE_TYPE_SUGGESTIONS = [
   'router',
@@ -97,11 +79,20 @@ const NODE_TYPE_SUGGESTIONS = [
   'mikrotik',
 ];
 
-const STYLE_VALUE_SUGGESTIONS = {
-  lineStyle: ['solid', 'dashed', 'dotted'],
-  fontWeight: ['normal', 'bold', '500', '600', '700'],
-  fill: ['#ffffff', '#e8f4fd', '#0d6e6e', 'transparent'],
-  stroke: ['#1f2c2f', '#3b4f52', '#0d6e6e', '#0f172a'],
+const LINK_TYPE_SUGGESTIONS = ['directed', 'undirected', 'association', 'dependency', 'generalization', 'none'];
+
+const DEFAULT_AUTOCOMPLETE_SPEC = {
+  rootSections: ['nodes', 'links'],
+  node: {
+    orderedKeys: ['name', 'type', 'ports', 'nodes'],
+    requiredKeys: ['name'],
+    entryStartKey: 'name',
+  },
+  link: {
+    orderedKeys: ['from', 'to', 'label', 'type'],
+    requiredKeys: ['from', 'to'],
+    entryStartKey: 'from',
+  },
 };
 
 const KEY_DOCUMENTATION = {
@@ -132,18 +123,13 @@ links:
     to: B
 `;
 
-const NODE_TEMPLATE_SNIPPET =
-  '- name: ${1:NodeA}\\n  type: ${2:router}\\n  id: ${3:node-a}\\n  style:\\n    fill: ${4:#e8f4fd}\\n    stroke: ${5:#1f2c2f}\\n$0';
-
-const EDGE_TEMPLATE_SNIPPET =
-  '- from: ${1:NodeA}\\n  to: ${2:NodeB}\\n  label: ${3:A-to-B}\\n  type: ${4:solid}\\n  style:\\n    stroke: ${5:#1f2c2f}\\n    lineStyle: ${6:solid}\\n$0';
-
 const EMPTY_COMPLETION_META_CACHE = {
   version: null,
   text: '',
   meta: {
     lines: [''],
     entities: { nodeNames: [], portsByNode: new Map() },
+    rootSectionPresence: new Set(),
   },
 };
 
@@ -325,29 +311,11 @@ function inferYamlSection(lines, lineIndex, indent) {
     }
     const sectionIndent = match[1].length;
     if (sectionIndent < indent || i === lineIndex) {
-      const rawSection = match[2] === 'edges' ? 'links' : match[2];
-      return { section: rawSection, sectionIndent };
+      const normalizedSection = ROOT_SECTION_ALIASES.get(match[2]) || match[2];
+      return { section: normalizedSection, sectionIndent };
     }
   }
   return { section: 'root', sectionIndent: 0 };
-}
-
-function inferParentKey(lines, lineIndex, indent) {
-  for (let i = lineIndex; i >= 0; i -= 1) {
-    const text = lines[i] || '';
-    if (!text.trim()) {
-      continue;
-    }
-    const currentIndent = lineIndent(text);
-    if (currentIndent >= indent) {
-      continue;
-    }
-    const keyMatch = text.trim().match(/^(?:-\s*)?([a-zA-Z_][a-zA-Z0-9_-]*)\s*:\s*$/);
-    if (keyMatch) {
-      return keyMatch[1];
-    }
-  }
-  return null;
 }
 
 function decodeJsonPointer(path) {
@@ -511,23 +479,17 @@ function collectGraphEntitiesFromParsed(parsed) {
   const nodeNames = new Set();
   const portsByNode = new Map();
   const seen = new Set();
+  const pendingEndpoints = [];
 
-  function addEndpoint(endpoint) {
+  function parseEndpoint(endpoint) {
     if (typeof endpoint !== 'string') {
-      return;
+      return null;
     }
     const [node, port] = endpoint.split(':');
     if (!node) {
-      return;
+      return null;
     }
-    nodeNames.add(node);
-    if (!port) {
-      return;
-    }
-    if (!portsByNode.has(node)) {
-      portsByNode.set(node, new Set());
-    }
-    portsByNode.get(node).add(port);
+    return { node, port: port || '' };
   }
 
   function visit(graphObj) {
@@ -553,9 +515,6 @@ function collectGraphEntitiesFromParsed(parsed) {
       if (typeof node.name === 'string') {
         nodeNames.add(node.name);
       }
-      if (typeof node.id === 'string') {
-        nodeNames.add(node.id);
-      }
       visit(node);
     }
 
@@ -563,12 +522,24 @@ function collectGraphEntitiesFromParsed(parsed) {
       if (!link || typeof link !== 'object') {
         continue;
       }
-      addEndpoint(link.from);
-      addEndpoint(link.to);
+      pendingEndpoints.push(parseEndpoint(link.from), parseEndpoint(link.to));
     }
   }
 
   visit(parsed);
+
+  for (const endpoint of pendingEndpoints) {
+    if (!endpoint || !endpoint.node || !endpoint.port) {
+      continue;
+    }
+    if (!nodeNames.has(endpoint.node)) {
+      continue;
+    }
+    if (!portsByNode.has(endpoint.node)) {
+      portsByNode.set(endpoint.node, new Set());
+    }
+    portsByNode.get(endpoint.node).add(endpoint.port);
+  }
 
   const sortedNodeNames = [...nodeNames].sort((a, b) => a.localeCompare(b));
   return {
@@ -577,16 +548,48 @@ function collectGraphEntitiesFromParsed(parsed) {
   };
 }
 
+function collectRootSectionPresence(lines, parsed) {
+  const present = new Set();
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    for (const key of Object.keys(parsed)) {
+      const normalized = ROOT_SECTION_ALIASES.get(key) || key;
+      if (normalized === 'nodes' || normalized === 'links') {
+        present.add(normalized);
+      }
+    }
+  }
+  if (present.size > 0) {
+    return present;
+  }
+
+  for (const line of lines) {
+    const match = line.match(/^(\s*)(nodes|links|edges)\s*:\s*$/);
+    if (!match) {
+      continue;
+    }
+    if ((match[1] || '').length !== 0) {
+      continue;
+    }
+    const normalized = ROOT_SECTION_ALIASES.get(match[2]) || match[2];
+    if (normalized === 'nodes' || normalized === 'links') {
+      present.add(normalized);
+    }
+  }
+  return present;
+}
+
 function buildAutocompleteMetadata(text) {
   const lines = text.split('\n');
   let entities = { nodeNames: [], portsByNode: new Map() };
+  let rootSectionPresence = collectRootSectionPresence(lines, null);
   try {
     const parsed = YAML.load(text);
     entities = collectGraphEntitiesFromParsed(parsed);
+    rootSectionPresence = collectRootSectionPresence(lines, parsed);
   } catch (_err) {
     // Best effort only. Completion still works for structural keys.
   }
-  return { lines, entities };
+  return { lines, entities, rootSectionPresence };
 }
 
 function endpointSuggestions(prefix, entities) {
@@ -616,8 +619,8 @@ function extractKeyFromLine(line) {
   return match ? match[1] : null;
 }
 
-function collectCurrentObjectKeys(lines, lineIndex, section) {
-  if (section !== 'nodes' && section !== 'links' && section !== 'style') {
+function collectCurrentObjectKeys(lines, lineIndex, section, endLineIndex = lines.length - 1) {
+  if (section !== 'nodes' && section !== 'links') {
     return [];
   }
 
@@ -631,15 +634,6 @@ function collectCurrentObjectKeys(lines, lineIndex, section) {
     }
     const indent = lineIndent(line);
 
-    if (section === 'style') {
-      const styleMatch = trimmed.match(/^(?:-\s*)?style\s*:\s*$/);
-      if (styleMatch) {
-        start = i;
-        objectIndent = indent;
-        break;
-      }
-    }
-
     if (/^-\s*/.test(trimmed)) {
       start = i;
       objectIndent = indent;
@@ -652,7 +646,7 @@ function collectCurrentObjectKeys(lines, lineIndex, section) {
   }
 
   const keys = [];
-  for (let i = start; i < lines.length; i += 1) {
+  for (let i = start; i <= endLineIndex && i < lines.length; i += 1) {
     const line = lines[i] || '';
     const trimmed = line.trim();
     if (!trimmed) {
@@ -660,23 +654,14 @@ function collectCurrentObjectKeys(lines, lineIndex, section) {
     }
     const indent = lineIndent(line);
 
-    if (section === 'style') {
-      if (i > start && indent <= objectIndent) {
-        break;
-      }
-      if (indent > objectIndent + INDENT_SIZE) {
-        continue;
-      }
-    } else {
-      if (i > start && indent <= objectIndent && /^-\s*/.test(trimmed)) {
-        break;
-      }
-      if (i > start && indent < objectIndent) {
-        break;
-      }
-      if (indent > objectIndent + INDENT_SIZE) {
-        continue;
-      }
+    if (i > start && indent <= objectIndent && /^-\s*/.test(trimmed)) {
+      break;
+    }
+    if (i > start && indent < objectIndent) {
+      break;
+    }
+    if (indent > objectIndent + INDENT_SIZE) {
+      continue;
     }
 
     const key = extractKeyFromLine(line);
@@ -688,21 +673,206 @@ function collectCurrentObjectKeys(lines, lineIndex, section) {
   return [...new Set(keys)];
 }
 
-function orderedKeySuggestions(items, usedKeys, requiredOrder, prefix) {
+function findItemStartBackward(lines, lineIndex, section) {
+  if (section !== 'nodes' && section !== 'links') {
+    return -1;
+  }
+  for (let i = lineIndex; i >= 0; i -= 1) {
+    const line = lines[i] || '';
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const indent = lineIndent(line);
+    const sectionInfo = inferYamlSection(lines, i, indent);
+    if (sectionInfo.section !== section) {
+      continue;
+    }
+    if (/^-\s*/.test(trimmed)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function collectItemContextInfo(lines, lineIndex, section) {
+  const currentItemStart = findItemStartBackward(lines, lineIndex, section);
+  if (currentItemStart < 0) {
+    return { objectKeys: [], canContinue: false };
+  }
+
+  const currentItemKeys = collectCurrentObjectKeys(lines, currentItemStart, section, lineIndex);
+  if (currentItemKeys.length > 0) {
+    return { objectKeys: currentItemKeys, canContinue: true };
+  }
+
+  const currentLineTrimmed = (lines[currentItemStart] || '').trim();
+  if (!/^-\s*$/.test(currentLineTrimmed)) {
+    return { objectKeys: [], canContinue: false };
+  }
+
+  const previousItemStart = findItemStartBackward(lines, currentItemStart - 1, section);
+  if (previousItemStart < 0) {
+    return { objectKeys: [], canContinue: false };
+  }
+
+  return {
+    objectKeys: collectCurrentObjectKeys(lines, previousItemStart, section, currentItemStart - 1),
+    canContinue: true,
+  };
+}
+
+function collectOrderedKeys(sectionSpec) {
+  const requiredKeys = Array.isArray(sectionSpec?.requiredKeys) ? sectionSpec.requiredKeys : [];
+  const orderedKeys = Array.isArray(sectionSpec?.orderedKeys) ? sectionSpec.orderedKeys : [];
+  const keys = [...requiredKeys, ...orderedKeys];
+  return [
+    ...new Set(
+      keys.filter(
+        (key) => typeof key === 'string' && key.trim() && !FORBIDDEN_AUTOCOMPLETE_KEYS.has(String(key).trim())
+      )
+    ),
+  ];
+}
+
+function normalizeSectionPrefix(prefix) {
+  return String(prefix || '')
+    .replace(/^-/, '')
+    .trim()
+    .toLowerCase();
+}
+
+function selectNextObjectKey(sectionSpec, usedKeys, prefix) {
+  const orderedKeys = collectOrderedKeys(sectionSpec);
   const used = new Set(usedKeys || []);
-  let filtered = items.filter((key) => !used.has(key));
-  const normalizedPrefix = (prefix || '').toLowerCase();
-  if (normalizedPrefix) {
-    filtered = filtered.filter((key) => key.toLowerCase().startsWith(normalizedPrefix));
+  const available = orderedKeys.filter((key) => !used.has(key));
+  const normalizedPrefix = normalizeSectionPrefix(prefix);
+
+  if (!normalizedPrefix) {
+    return available.length ? [available[0]] : [];
   }
-  if (normalizedPrefix || !requiredOrder?.length) {
-    return filtered;
+  return available.filter((key) => key.toLowerCase().startsWith(normalizedPrefix)).slice(0, 1);
+}
+
+function sectionSpecFor(section, spec) {
+  if (section === 'nodes') {
+    return spec?.node || DEFAULT_AUTOCOMPLETE_SPEC.node;
   }
-  const nextRequired = requiredOrder.find((key) => filtered.includes(key));
-  if (!nextRequired) {
-    return filtered;
+  if (section === 'links') {
+    return spec?.link || DEFAULT_AUTOCOMPLETE_SPEC.link;
   }
-  return [nextRequired, ...filtered.filter((key) => key !== nextRequired)];
+  return null;
+}
+
+function resolveItemObjectSchema(arraySchema) {
+  const items = arraySchema?.items;
+  const candidates = [];
+  if (items && typeof items === 'object') {
+    candidates.push(items);
+    if (Array.isArray(items.anyOf)) {
+      candidates.push(...items.anyOf);
+    }
+    if (Array.isArray(items.oneOf)) {
+      candidates.push(...items.oneOf);
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') {
+      continue;
+    }
+    if (candidate.type === 'object' || candidate.properties) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function resolveSectionSpec(arraySchema, fallback) {
+  const objectSpec = resolveItemObjectSchema(arraySchema);
+  if (!objectSpec) {
+    return fallback;
+  }
+
+  const properties = objectSpec.properties && typeof objectSpec.properties === 'object' ? objectSpec.properties : {};
+  const preferred = collectOrderedKeys(fallback);
+  const schemaKeys = Object.keys(properties).filter((key) => !FORBIDDEN_AUTOCOMPLETE_KEYS.has(key));
+  const orderedKeys = preferred.length ? preferred : schemaKeys;
+  const schemaRequired = Array.isArray(objectSpec.required)
+    ? objectSpec.required.filter((key) => orderedKeys.includes(key))
+    : [];
+  const fallbackRequired = Array.isArray(fallback?.requiredKeys)
+    ? fallback.requiredKeys.filter((key) => orderedKeys.includes(key))
+    : [];
+  const requiredKeys = [...new Set([...fallbackRequired, ...schemaRequired])];
+  const entryStartKey =
+    (typeof fallback.entryStartKey === 'string' && orderedKeys.includes(fallback.entryStartKey) && fallback.entryStartKey) ||
+    requiredKeys[0] ||
+    orderedKeys[0] ||
+    fallback.entryStartKey;
+
+  return {
+    orderedKeys,
+    requiredKeys,
+    entryStartKey,
+  };
+}
+
+function extractAutocompleteSpecFromSchema(schema) {
+  const fallback = DEFAULT_AUTOCOMPLETE_SPEC;
+  const properties = schema?.properties && typeof schema.properties === 'object' ? schema.properties : {};
+  const rootCandidates = Object.keys(properties)
+    .map((key) => ROOT_SECTION_ALIASES.get(key) || key)
+    .filter((key) => key === 'nodes' || key === 'links');
+  const rootSections = [...new Set(rootCandidates)];
+
+  return {
+    rootSections: rootSections.length ? rootSections : fallback.rootSections,
+    node: resolveSectionSpec(properties.nodes, fallback.node),
+    link: resolveSectionSpec(properties.links || properties.edges, fallback.link),
+  };
+}
+
+function previousNonEmptyLine(lines, startIndex) {
+  for (let i = startIndex; i >= 0; i -= 1) {
+    const line = lines[i] || '';
+    if (!line.trim()) {
+      continue;
+    }
+    return { line, index: i };
+  }
+  return null;
+}
+
+function keyFromLine(line) {
+  const match = String(line || '').trim().match(/^(?:-\s*)?([a-zA-Z_][a-zA-Z0-9_-]*)\s*:/);
+  return match ? match[1] : null;
+}
+
+function isContinuationLineAfterTerminalKey(lines, lineNumber, section, itemIndent) {
+  const safeLineIndex = Math.max(0, lineNumber - 1);
+  const currentLine = lines[safeLineIndex] || '';
+  if (currentLine.trim().length > 0) {
+    return false;
+  }
+  if (lineIndent(currentLine) <= itemIndent) {
+    return false;
+  }
+
+  const previous = previousNonEmptyLine(lines, safeLineIndex - 1);
+  if (!previous) {
+    return false;
+  }
+  if (lineIndent(previous.line) < itemIndent) {
+    return false;
+  }
+
+  const previousKey = keyFromLine(previous.line);
+  if (!previousKey) {
+    return false;
+  }
+  const terminalKey = section === 'nodes' ? 'type' : section === 'links' ? 'type' : null;
+  return terminalKey === previousKey;
 }
 
 export function getYamlAutocompleteContext(text, lineNumber, column) {
@@ -714,14 +884,11 @@ export function getYamlAutocompleteContext(text, lineNumber, column) {
   const trimmedLeft = leftText.trim();
   const indent = lineIndent(line);
   const sectionInfo = inferYamlSection(lines, safeLineNumber - 1, indent);
-  let section = sectionInfo.section;
-
-  if (section !== 'root' && indent === sectionInfo.sectionIndent + INDENT_SIZE && !trimmedLeft.startsWith('-')) {
-    section = 'root';
+  const section = sectionInfo.section;
+  const itemIndent = sectionInfo.sectionIndent + INDENT_SIZE;
+  if (section !== 'root' && isContinuationLineAfterTerminalKey(lines, safeLineNumber, section, itemIndent)) {
+    return { kind: 'itemKey', section, prefix: '' };
   }
-
-  const parentKey = inferParentKey(lines, safeLineNumber - 1, indent);
-  const effectiveSection = parentKey === 'style' ? 'style' : section;
 
   const dashTypeMatch = trimmedLeft.match(/^-\s*type:\s*([a-zA-Z0-9_-]*)$/);
   const typeMatch = trimmedLeft.match(/^type:\s*([a-zA-Z0-9_-]*)$/);
@@ -729,6 +896,10 @@ export function getYamlAutocompleteContext(text, lineNumber, column) {
   if (typeValueMatch && section === 'nodes') {
     const prefix = typeValueMatch[1] || '';
     return { kind: 'nodeTypeValue', section, prefix };
+  }
+  if (typeValueMatch && section === 'links') {
+    const prefix = typeValueMatch[1] || '';
+    return { kind: 'linkTypeValue', section, prefix };
   }
 
   const endpointMatch = trimmedLeft.match(/^(?:-\s*)?(from|to):\s*([^\s]*)$/);
@@ -741,74 +912,45 @@ export function getYamlAutocompleteContext(text, lineNumber, column) {
     };
   }
 
-  const genericValueMatch = trimmedLeft.match(/^(?:-\s*)?([a-zA-Z_][a-zA-Z0-9_-]*)\s*:\s*([^\s]*)$/);
-  if (genericValueMatch) {
-    const field = genericValueMatch[1];
-    const prefix = genericValueMatch[2] || '';
-    if (STYLE_KEYS.includes(field) || parentKey === 'style') {
-      return {
-        kind: 'styleValue',
-        section,
-        styleField: field,
-        prefix,
-      };
-    }
-  }
-
   const listKeyMatch = trimmedLeft.match(/^-\s*([a-zA-Z_][a-zA-Z0-9_-]*)?$/);
-  if (listKeyMatch) {
+  if (
+    section !== 'root' &&
+    (listKeyMatch || (indent <= itemIndent && (trimmedLeft === '' || /^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(trimmedLeft))))
+  ) {
     return {
-      kind: 'key',
-      section: effectiveSection,
-      prefix: listKeyMatch[1] || '',
+      kind: 'itemKey',
+      section,
+      prefix: listKeyMatch ? listKeyMatch[1] || '' : trimmedLeft,
     };
   }
 
   const keyMatch = trimmedLeft.match(/^([a-zA-Z_][a-zA-Z0-9_-]*)?$/);
   if (keyMatch) {
     return {
-      kind: 'key',
-      section: effectiveSection,
+      kind: section === 'root' ? 'rootKey' : 'key',
+      section,
       prefix: keyMatch[1] || '',
     };
   }
 
-  return { kind: 'none', section: effectiveSection, prefix: '' };
-}
-
-function inferAutocompleteState(context) {
-  if (context.kind === 'nodeTypeValue') {
-    return AUTOCOMPLETE_STATE.NODE_TYPE_VALUE;
-  }
-  if (context.kind === 'endpointValue' && context.section === 'links') {
-    return AUTOCOMPLETE_STATE.LINK_ENDPOINT_VALUE;
-  }
-  if (context.kind === 'styleValue') {
-    return AUTOCOMPLETE_STATE.STYLE_VALUE;
-  }
-  if (context.kind === 'key' && context.section === 'style') {
-    return AUTOCOMPLETE_STATE.STYLE_KEY;
-  }
-  if (context.kind === 'key' && context.section === 'root') {
-    return AUTOCOMPLETE_STATE.ROOT_KEY;
-  }
-  if (context.kind === 'key' && context.section === 'nodes') {
-    return AUTOCOMPLETE_STATE.NODE_KEY;
-  }
-  if (context.kind === 'key' && context.section === 'links') {
-    return AUTOCOMPLETE_STATE.LINK_KEY;
-  }
-  return AUTOCOMPLETE_STATE.NONE;
+  return { kind: 'none', section, prefix: '' };
 }
 
 function buildAutocompleteRuntimeFromMeta(text, lineNumber, column, meta) {
   const context = getYamlAutocompleteContext(text, lineNumber, column);
   const lineIndex = Math.max(0, Math.min(lineNumber - 1, meta.lines.length - 1));
-  const sectionForObject = context.section === 'style' ? 'style' : context.section;
+  const itemContextInfo =
+    context.kind === 'itemKey' && (context.section === 'nodes' || context.section === 'links')
+      ? collectItemContextInfo(meta.lines, lineIndex, context.section)
+      : { objectKeys: [], canContinue: false };
   return {
     context,
-    state: inferAutocompleteState(context),
-    objectKeys: collectCurrentObjectKeys(meta.lines, lineIndex, sectionForObject),
+    objectKeys:
+      context.kind === 'key' && (context.section === 'nodes' || context.section === 'links')
+        ? collectCurrentObjectKeys(meta.lines, lineIndex, context.section, lineIndex)
+        : [],
+    itemContextKeys: itemContextInfo.objectKeys,
+    canContinueItemContext: itemContextInfo.canContinue,
     entities: meta.entities,
   };
 }
@@ -833,51 +975,120 @@ export function extractNodeTypesFromSchema(schema) {
         addEnum(item?.enum);
       }
     }
+
+    const nodeSpec = resolveItemObjectSchema(schema?.properties?.nodes);
+    addEnum(nodeSpec?.properties?.type?.enum);
+    if (Array.isArray(nodeSpec?.properties?.type?.anyOf)) {
+      for (const item of nodeSpec.properties.type.anyOf) {
+        addEnum(item?.enum);
+      }
+    }
   } catch (_err) {
     // Keep default suggestions.
   }
   return [...new Set(candidates)];
 }
 
+function extractLinkTypesFromSchema(schema) {
+  const candidates = [];
+  const addEnum = (arr) => {
+    if (!Array.isArray(arr)) {
+      return;
+    }
+    for (const value of arr) {
+      if (typeof value === 'string' && value.trim()) {
+        candidates.push(value);
+      }
+    }
+  };
+
+  try {
+    const linkSpec = resolveItemObjectSchema(schema?.properties?.links || schema?.properties?.edges);
+    addEnum(linkSpec?.properties?.type?.enum);
+    if (Array.isArray(linkSpec?.properties?.type?.anyOf)) {
+      for (const item of linkSpec.properties.type.anyOf) {
+        addEnum(item?.enum);
+      }
+    }
+  } catch (_err) {
+    // Keep fallback list.
+  }
+
+  return [...new Set(candidates)];
+}
+
 export function getYamlAutocompleteSuggestions(context, meta = {}) {
-  const state = meta.state || inferAutocompleteState(context);
+  const spec = meta.spec || DEFAULT_AUTOCOMPLETE_SPEC;
   const nodeTypes =
     Array.isArray(meta.nodeTypeSuggestions) && meta.nodeTypeSuggestions.length
       ? meta.nodeTypeSuggestions
       : NODE_TYPE_SUGGESTIONS;
+  const linkTypes =
+    Array.isArray(meta.linkTypeSuggestions) && meta.linkTypeSuggestions.length
+      ? meta.linkTypeSuggestions
+      : LINK_TYPE_SUGGESTIONS;
 
-  if (state === AUTOCOMPLETE_STATE.NODE_TYPE_VALUE) {
+  if (context.kind === 'nodeTypeValue') {
     return nodeTypes.filter((item) => item.startsWith((context.prefix || '').toLowerCase()));
   }
+  if (context.kind === 'linkTypeValue') {
+    return linkTypes.filter((item) => item.startsWith((context.prefix || '').toLowerCase()));
+  }
 
-  if (state === AUTOCOMPLETE_STATE.LINK_ENDPOINT_VALUE) {
+  if (context.kind === 'endpointValue') {
     return endpointSuggestions(context.prefix, meta.entities || { nodeNames: [], portsByNode: new Map() });
   }
 
-  if (state === AUTOCOMPLETE_STATE.STYLE_VALUE) {
-    const field = context.styleField;
-    const styleOptions = STYLE_VALUE_SUGGESTIONS[field] || [];
-    const prefix = (context.prefix || '').toLowerCase();
-    return styleOptions.filter((value) => value.toLowerCase().startsWith(prefix));
+  if (context.kind === 'rootKey') {
+    const prefix = normalizeSectionPrefix(context.prefix);
+    const rootSections = (spec.rootSections || DEFAULT_AUTOCOMPLETE_SPEC.rootSections).filter((item) =>
+      item.toLowerCase().startsWith(prefix)
+    );
+    const present = meta.rootSectionPresence || new Set();
+    return rootSections.sort((a, b) => {
+      const aPresent = present.has(a) ? 1 : 0;
+      const bPresent = present.has(b) ? 1 : 0;
+      if (aPresent !== bPresent) {
+        return aPresent - bPresent;
+      }
+      return 0;
+    });
   }
 
-  if (context.kind !== 'key') {
-    return [];
+  if (context.kind === 'itemKey') {
+    const sectionSpec = sectionSpecFor(context.section, spec);
+    const itemContextKeys = Array.isArray(meta.itemContextKeys) ? meta.itemContextKeys : [];
+    const canContinueItem = Boolean(meta.canContinueItemContext);
+    const startKey = sectionSpec?.entryStartKey || (context.section === 'nodes' ? 'name' : 'from');
+    const normalizedPrefix = normalizeSectionPrefix(context.prefix);
+
+    let continuationKeys = collectOrderedKeys(sectionSpec).filter((key) => key !== startKey);
+    if (context.section === 'nodes' && itemContextKeys.includes('type')) {
+      continuationKeys = [];
+    }
+    continuationKeys = continuationKeys.filter((key) => !itemContextKeys.includes(key));
+
+    const options = [{ label: `- ${startKey}`, key: startKey }];
+    if (canContinueItem) {
+      for (const key of continuationKeys) {
+        options.push({ label: `  ${key}`, key });
+      }
+    }
+
+    if (!normalizedPrefix) {
+      return options.map((option) => option.label);
+    }
+    return options
+      .filter((option) => option.key.toLowerCase().startsWith(normalizedPrefix))
+      .map((option) => option.label);
   }
 
-  if (state === AUTOCOMPLETE_STATE.STYLE_KEY) {
-    return orderedKeySuggestions(STYLE_KEYS, meta.objectKeys, REQUIRED_STYLE_ORDER, context.prefix);
+  if (context.kind === 'key' && (context.section === 'nodes' || context.section === 'links')) {
+    const sectionSpec = sectionSpecFor(context.section, spec);
+    return selectNextObjectKey(sectionSpec, meta.objectKeys, context.prefix);
   }
 
-  if (state === AUTOCOMPLETE_STATE.NODE_KEY) {
-    return orderedKeySuggestions(NODE_KEYS, meta.objectKeys, REQUIRED_NODE_ORDER, context.prefix);
-  }
-
-  if (state === AUTOCOMPLETE_STATE.LINK_KEY) {
-    return orderedKeySuggestions(LINK_KEYS, meta.objectKeys, REQUIRED_LINK_ORDER, context.prefix);
-  }
-
-  return ROOT_KEYS.filter((item) => item.startsWith((context.prefix || '').toLowerCase()));
+  return [];
 }
 
 export function computeIndentBackspaceDeleteCount(lineContent, column, indentSize = INDENT_SIZE) {
@@ -1208,6 +1419,8 @@ export default function App() {
   const focusSuggestListenerRef = useRef(null);
   const modelContentListenerRef = useRef(null);
   const nodeTypeSuggestionsRef = useRef(NODE_TYPE_SUGGESTIONS);
+  const linkTypeSuggestionsRef = useRef(LINK_TYPE_SUGGESTIONS);
+  const autocompleteSpecRef = useRef(DEFAULT_AUTOCOMPLETE_SPEC);
 
   const completionMetaCacheRef = useRef(EMPTY_COMPLETION_META_CACHE);
   const documentStateRef = useRef(null);
@@ -1224,6 +1437,16 @@ export default function App() {
   useEffect(() => {
     documentStateRef.current = documentState;
   }, [documentState]);
+
+  useEffect(() => {
+    if (!editorRef.current || yamlText.trim().length > 0) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      editorRef.current?.trigger('empty-model', 'editor.action.triggerSuggest', {});
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [yamlText]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -1247,6 +1470,10 @@ export default function App() {
         const extractedNodeTypes = extractNodeTypesFromSchema(nextSchema);
         nodeTypeSuggestionsRef.current =
           extractedNodeTypes.length > 0 ? extractedNodeTypes : NODE_TYPE_SUGGESTIONS;
+        const extractedLinkTypes = extractLinkTypesFromSchema(nextSchema);
+        linkTypeSuggestionsRef.current =
+          extractedLinkTypes.length > 0 ? extractedLinkTypes : LINK_TYPE_SUGGESTIONS;
+        autocompleteSpecRef.current = extractAutocompleteSpecFromSchema(nextSchema);
 
         const ajv = new Ajv2020({ allErrors: true, strict: false });
         const compiledValidate = ajv.compile(nextSchema);
@@ -1514,7 +1741,11 @@ export default function App() {
     const latestDocumentState = documentStateRef.current;
     const meta =
       latestDocumentState && latestDocumentState.text === text
-        ? { lines: text.split('\n'), entities: latestDocumentState.entities }
+        ? {
+            lines: text.split('\n'),
+            entities: latestDocumentState.entities,
+            rootSectionPresence: collectRootSectionPresence(text.split('\n'), latestDocumentState.parsedGraph),
+          }
         : buildAutocompleteMetadata(text);
 
     completionMetaCacheRef.current = { version, text, meta };
@@ -1542,6 +1773,41 @@ export default function App() {
       modelContentListenerRef.current.dispose();
     }
 
+    function resolveSuggestionsForPosition(model, position) {
+      if (!model || !position) {
+        return [];
+      }
+      const meta = getCompletionMeta(model);
+      const text = model.getValue();
+      const runtime = buildAutocompleteRuntimeFromMeta(text, position.lineNumber, position.column, meta);
+      return getYamlAutocompleteSuggestions(runtime.context, {
+        objectKeys: runtime.objectKeys,
+        itemContextKeys: runtime.itemContextKeys,
+        canContinueItemContext: runtime.canContinueItemContext,
+        entities: runtime.entities,
+        rootSectionPresence: meta.rootSectionPresence,
+        nodeTypeSuggestions: nodeTypeSuggestionsRef.current,
+        linkTypeSuggestions: linkTypeSuggestionsRef.current,
+        spec: autocompleteSpecRef.current,
+      });
+    }
+
+    function triggerSuggestIfAvailable(source) {
+      const model = editor.getModel?.();
+      const position =
+        editor.getPosition?.() || editor.getSelection?.()?.getPosition?.() || editor.getSelection?.()?.getStartPosition?.();
+      if (!model || !position) {
+        editor.trigger(source, 'editor.action.triggerSuggest', {});
+        return;
+      }
+      const suggestions = resolveSuggestionsForPosition(model, position);
+      if (suggestions.length > 0) {
+        editor.trigger(source, 'editor.action.triggerSuggest', {});
+        return;
+      }
+      editor.trigger(source, 'hideSuggestWidget', {});
+    }
+
     completionProviderRef.current = monaco.languages.registerCompletionItemProvider('yaml', {
       triggerCharacters: [' ', ':', '-', '.'],
       provideCompletionItems(model, position) {
@@ -1550,10 +1816,14 @@ export default function App() {
         const runtime = buildAutocompleteRuntimeFromMeta(text, position.lineNumber, position.column, meta);
         const context = runtime.context;
         const suggestions = getYamlAutocompleteSuggestions(context, {
-          state: runtime.state,
           objectKeys: runtime.objectKeys,
+          itemContextKeys: runtime.itemContextKeys,
+          canContinueItemContext: runtime.canContinueItemContext,
           entities: runtime.entities,
+          rootSectionPresence: meta.rootSectionPresence,
           nodeTypeSuggestions: nodeTypeSuggestionsRef.current,
+          linkTypeSuggestions: linkTypeSuggestionsRef.current,
+          spec: autocompleteSpecRef.current,
         });
 
         const completionKinds = monaco.languages.CompletionItemKind || {};
@@ -1561,7 +1831,6 @@ export default function App() {
         const propertyKind = completionKinds.Property ?? 2;
         const valueKind = completionKinds.Value ?? 1;
         const enumKind = completionKinds.Enum ?? valueKind;
-        const snippetKind = completionKinds.Snippet ?? valueKind;
 
         const startColumn = Math.max(1, position.column - (context.prefix || '').length);
         const range = new monaco.Range(position.lineNumber, startColumn, position.lineNumber, position.column);
@@ -1569,97 +1838,75 @@ export default function App() {
         const currentLine =
           typeof model.getLineContent === 'function' ? model.getLineContent(position.lineNumber) : '';
         const currentIndent = lineIndent(currentLine);
-        const baseIndent = context.section === 'root' ? 0 : currentIndent;
-        const childIndent = ' '.repeat(baseIndent + INDENT_SIZE);
 
         const completionItems = suggestions.map((item, idx) => {
-          const canonicalKey = item === 'edges' ? 'links' : item;
-          const isKeyCompletion =
-            runtime.state === AUTOCOMPLETE_STATE.ROOT_KEY ||
-            runtime.state === AUTOCOMPLETE_STATE.NODE_KEY ||
-            runtime.state === AUTOCOMPLETE_STATE.LINK_KEY ||
-            runtime.state === AUTOCOMPLETE_STATE.STYLE_KEY;
-
-          const isCollectionKey = isKeyCompletion && COLLECTION_KEYS.has(item);
-          const isLinkCollectionKey = isCollectionKey && canonicalKey === 'links';
-          const isNodeCollectionKey = isCollectionKey && canonicalKey === 'nodes';
-
+          let itemRange = range;
           let insertText;
           let insertTextRule;
-
-          if (isCollectionKey) {
-            if (isLinkCollectionKey) {
-              insertText = `${canonicalKey}:\n${childIndent}- from: \${1}\n${childIndent}  to: \${2}\n${childIndent}  label: \${3}\n${childIndent}  type: \${4}\n${childIndent}- from: $0`;
-            } else if (isNodeCollectionKey) {
-              insertText = `${canonicalKey}:\n${childIndent}- name: \${1}\n${childIndent}  type: \${2}\n${childIndent}  links:\n${childIndent}    - from: \${1}:\${3}\n${childIndent}      to: \${4}:\${5}\n${childIndent}      label: \${6}\n${childIndent}      type: \${7}\n${childIndent}- name: $0`;
+          const normalizedItem = String(item || '');
+          const trimmedItem = normalizedItem.trim();
+          const isItemStartLabel = /^\-\s+/.test(trimmedItem);
+          const suggestionKey = trimmedItem.replace(/^\-\s+/, '').trim();
+          if (context.kind === 'rootKey') {
+            const nextKey =
+              item === 'nodes'
+                ? autocompleteSpecRef.current.node.entryStartKey
+                : autocompleteSpecRef.current.link.entryStartKey;
+            insertText = `${item}:\n${' '.repeat(INDENT_SIZE)}- ${nextKey}: `;
+          } else if (context.kind === 'itemKey') {
+            const sectionInfo = inferYamlSection(meta.lines, position.lineNumber - 1, lineIndent(currentLine));
+            const desiredIndent = sectionInfo.sectionIndent + INDENT_SIZE;
+            itemRange = new monaco.Range(position.lineNumber, 1, position.lineNumber, position.column);
+            if (isItemStartLabel) {
+              insertText = `${' '.repeat(desiredIndent)}- ${suggestionKey}: `;
             } else {
-              insertText = `${canonicalKey}:\n${childIndent}$0`;
+              insertText = `${' '.repeat(desiredIndent + INDENT_SIZE)}${suggestionKey}: `;
             }
-            insertTextRule = insertTextRules.InsertAsSnippet;
+          } else if (context.kind === 'key') {
+            insertText = `${item}: `;
           } else {
-            insertText = isKeyCompletion ? `${canonicalKey}: ` : item;
+            const isTypeValueContext = context.kind === 'nodeTypeValue' || context.kind === 'linkTypeValue';
+            if (isTypeValueContext) {
+              insertText = `${item}\n${' '.repeat(currentIndent)}$0`;
+              insertTextRule = insertTextRules.InsertAsSnippet;
+            } else {
+              insertText = item;
+            }
           }
 
-          const isTypeOrEndpointKey = isKeyCompletion && ['type', 'from', 'to'].includes(item);
-          const shouldTriggerSuggest = isTypeOrEndpointKey || isLinkCollectionKey || isNodeCollectionKey;
+          const isValueContext =
+            context.kind === 'nodeTypeValue' || context.kind === 'linkTypeValue' || context.kind === 'endpointValue';
+          const isKeyLikeContext = context.kind === 'key' || context.kind === 'itemKey';
+          const isTypeValueContext = context.kind === 'nodeTypeValue' || context.kind === 'linkTypeValue';
+          const keyToken = context.kind === 'itemKey' ? suggestionKey : item;
+          const shouldTriggerSuggest =
+            (isKeyLikeContext && ['type', 'from', 'to'].includes(keyToken)) || isTypeValueContext;
 
           return {
             label: item,
-            kind:
-              runtime.state === AUTOCOMPLETE_STATE.NODE_TYPE_VALUE ||
-              runtime.state === AUTOCOMPLETE_STATE.LINK_ENDPOINT_VALUE ||
-              runtime.state === AUTOCOMPLETE_STATE.STYLE_VALUE
-                ? enumKind
-                : isCollectionKey
-                  ? snippetKind
-                  : propertyKind,
-            range,
+            kind: isValueContext ? enumKind : propertyKind,
+            range: itemRange,
             insertText,
             insertTextRules: insertTextRule,
             sortText: `${String(idx).padStart(3, '0')}-${item}`,
-            detail: isKeyCompletion ? 'Graph key' : 'Graph value',
-            documentation: buildCompletionDocumentation(item),
+            detail: isKeyLikeContext || context.kind === 'rootKey' ? 'Next graph step' : 'Graph value',
+            documentation: buildCompletionDocumentation(keyToken),
             command: shouldTriggerSuggest
               ? {
                   id: 'editor.action.triggerSuggest',
-                  title: isLinkCollectionKey
-                    ? 'Trigger Link Suggestions'
-                    : isNodeCollectionKey
-                      ? 'Trigger Node Suggestions'
-                      : item === 'type'
-                        ? 'Trigger Type Suggestions'
-                        : 'Trigger Endpoint Suggestions',
+                  title: isTypeValueContext
+                    ? 'Trigger Next Step Suggestions'
+                    : keyToken === 'type'
+                      ? 'Trigger Type Suggestions'
+                      : 'Trigger Endpoint Suggestions',
                 }
               : undefined,
           };
         });
 
-        if (runtime.state === AUTOCOMPLETE_STATE.NODE_KEY && !(context.prefix || '').trim()) {
-          completionItems.unshift({
-            label: 'node template',
-            kind: snippetKind,
-            range,
-            insertText: NODE_TEMPLATE_SNIPPET,
-            insertTextRules: insertTextRules.InsertAsSnippet,
-            sortText: '000-node-template',
-            detail: 'Snippet',
-            documentation: 'Insert a complete node object scaffold.',
-          });
+        if (completionItems.length === 0) {
+          return undefined;
         }
-
-        if (runtime.state === AUTOCOMPLETE_STATE.LINK_KEY && !(context.prefix || '').trim()) {
-          completionItems.unshift({
-            label: 'edge template',
-            kind: snippetKind,
-            range,
-            insertText: EDGE_TEMPLATE_SNIPPET,
-            insertTextRules: insertTextRules.InsertAsSnippet,
-            sortText: '000-edge-template',
-            detail: 'Snippet',
-            documentation: 'Insert a complete edge/link scaffold.',
-          });
-        }
-
         return { suggestions: completionItems };
       },
     });
@@ -1688,7 +1935,14 @@ export default function App() {
     tabSuggestListenerRef.current = editor.onKeyDown((event) => {
       if (event.keyCode === monaco.KeyCode.Tab) {
         window.setTimeout(() => {
-          editor.trigger('keyboard', 'editor.action.triggerSuggest', {});
+          triggerSuggestIfAvailable('keyboard');
+        }, 0);
+        return;
+      }
+
+      if (monaco.KeyCode?.Enter && event.keyCode === monaco.KeyCode.Enter) {
+        window.setTimeout(() => {
+          triggerSuggestIfAvailable('enter');
         }, 0);
         return;
       }
@@ -1730,6 +1984,9 @@ export default function App() {
           text: '',
         },
       ]);
+      window.setTimeout(() => {
+        triggerSuggestIfAvailable('backspace');
+      }, 0);
     });
 
     focusSuggestListenerRef.current = editor.onDidFocusEditorText?.(() => {
@@ -1737,16 +1994,25 @@ export default function App() {
       if (!model || model.getValue().trim().length > 0) {
         return;
       }
-      editor.trigger('focus', 'editor.action.triggerSuggest', {});
+      triggerSuggestIfAvailable('focus');
     });
 
     modelContentListenerRef.current = editor.onDidChangeModelContent?.(() => {
       completionMetaCacheRef.current = EMPTY_COMPLETION_META_CACHE;
+      const model = editor.getModel?.();
+      if (!model) {
+        return;
+      }
+      if (model.getValue().trim().length === 0) {
+        window.setTimeout(() => {
+          triggerSuggestIfAvailable('empty');
+        }, 0);
+      }
     });
 
     const model = editor.getModel?.();
     if (model && model.getValue().trim().length === 0) {
-      editor.trigger('mount', 'editor.action.triggerSuggest', {});
+      triggerSuggestIfAvailable('mount');
     }
   }
 
@@ -1783,8 +2049,14 @@ export default function App() {
               fontSize: 14,
               automaticLayout: true,
               scrollBeyondLastLine: false,
+              wordBasedSuggestions: 'off',
+              snippetSuggestions: 'none',
               quickSuggestions: { comments: false, strings: true, other: true },
               suggestOnTriggerCharacters: true,
+              suggest: {
+                showWords: false,
+                showSnippets: false,
+              },
               tabCompletion: 'on',
             }}
           />

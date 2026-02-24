@@ -49,6 +49,7 @@ vi.mock('@monaco-editor/react', async () => {
         KeyCode: {
           Tab: 2,
           Backspace: 1,
+          Enter: 3,
         },
         Range: class {
           constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
@@ -515,6 +516,19 @@ describe('App', () => {
     expect(editorTriggerSpy).toHaveBeenCalledWith('mount', 'editor.action.triggerSuggest', {});
   });
 
+  it('triggers suggest when document becomes empty', async () => {
+    installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
+    render(<App />);
+    await flushDebounce();
+
+    fireEvent.change(screen.getByTestId('monaco-editor'), { target: { value: '' } });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(editorTriggerSpy).toHaveBeenCalledWith('empty-model', 'editor.action.triggerSuggest', {});
+  });
+
   it('completion provider suggests node keys and node types in context', async () => {
     installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
     render(<App />);
@@ -527,12 +541,12 @@ describe('App', () => {
       { getValue: () => 'nodes:\n  - na', getLineContent: () => '  - na' },
       { lineNumber: 2, column: 7 }
     );
-    const nameSuggestion = keyResult.suggestions.find((item) => item.label === 'name');
+    const nameSuggestion = keyResult.suggestions.find((item) => item.label === '- name');
     expect(nameSuggestion).toBeTruthy();
-    expect(nameSuggestion.insertText).toBe('name: ');
+    expect(nameSuggestion.insertText).toBe('  - name: ');
     const typeKeyResult = provider.provideCompletionItems(
-      { getValue: () => 'nodes:\n  - ty', getLineContent: () => '  - ty' },
-      { lineNumber: 2, column: 7 }
+      { getValue: () => 'nodes:\n  - name: A\n    ty', getLineContent: () => '    ty' },
+      { lineNumber: 3, column: 7 }
     );
     const typeKeySuggestion = typeKeyResult.suggestions.find((item) => item.label === 'type');
     expect(typeKeySuggestion.command).toEqual({
@@ -546,47 +560,102 @@ describe('App', () => {
     );
     const routerSuggestion = typeResult.suggestions.find((item) => item.label === 'router');
     expect(routerSuggestion).toBeTruthy();
-    expect(routerSuggestion.insertText).toBe('router');
+    expect(routerSuggestion.insertText).toBe('router\n    $0');
+    expect(routerSuggestion.insertTextRules).toBe(4);
+    expect(routerSuggestion.command).toEqual({
+      id: 'editor.action.triggerSuggest',
+      title: 'Trigger Next Step Suggestions',
+    });
+
+    const linkTypeResult = provider.provideCompletionItems(
+      { getValue: () => 'links:\n  - from: A\n    to: B\n    type: di', getLineContent: () => '    type: di' },
+      { lineNumber: 4, column: 13 }
+    );
+    const directedSuggestion = linkTypeResult.suggestions.find((item) => item.label === 'directed');
+    expect(directedSuggestion).toBeTruthy();
+    expect(directedSuggestion.insertText).toBe('directed\n    $0');
+    expect(directedSuggestion.insertTextRules).toBe(4);
+    expect(directedSuggestion.command).toEqual({
+      id: 'editor.action.triggerSuggest',
+      title: 'Trigger Next Step Suggestions',
+    });
+
+    const nameValueResult = provider.provideCompletionItems(
+      { getValue: () => 'nodes:\n  - name: foobar', getLineContent: () => '  - name: foobar' },
+      { lineNumber: 2, column: 17 }
+    );
+    expect(nameValueResult).toBeUndefined();
+
+    const endpointWithoutNodes = provider.provideCompletionItems(
+      { getValue: () => 'links:\n  - from: ', getLineContent: () => '  - from: ' },
+      { lineNumber: 2, column: 11 }
+    );
+    expect(endpointWithoutNodes).toBeUndefined();
+
+    const endpointWithNodes = provider.provideCompletionItems(
+      {
+        getValue: () => 'nodes:\n  - name: A\nlinks:\n  - from: A',
+        getLineContent: () => '  - from: A',
+      },
+      { lineNumber: 4, column: 12 }
+    );
+    expect(endpointWithNodes.suggestions.some((item) => item.label === 'A')).toBe(true);
 
     const rootResult = provider.provideCompletionItems(
-      { getValue: () => 'ed', getLineContent: () => 'ed' },
-      { lineNumber: 1, column: 3 }
+      { getValue: () => '', getLineContent: () => '' },
+      { lineNumber: 1, column: 1 }
     );
-    const edgeAlias = rootResult.suggestions.find((item) => item.label === 'edges');
-    expect(edgeAlias.insertText).toContain('links:\n  - from: ${1}');
-    expect(edgeAlias.insertTextRules).toBe(4);
-    expect(edgeAlias.command).toEqual({
-      id: 'editor.action.triggerSuggest',
-      title: 'Trigger Link Suggestions',
-    });
+    expect(rootResult.suggestions.map((item) => item.label)).toEqual(['nodes', 'links']);
+
+    const rootAfterNodesResult = provider.provideCompletionItems(
+      { getValue: () => 'nodes:\n  - name: A\n', getLineContent: () => '' },
+      { lineNumber: 3, column: 1 }
+    );
+    expect(rootAfterNodesResult.suggestions.map((item) => item.label)).toEqual(['links', 'nodes']);
 
     const nodesResult = provider.provideCompletionItems(
       { getValue: () => 'no', getLineContent: () => 'no' },
       { lineNumber: 1, column: 3 }
     );
     const nodesSuggestion = nodesResult.suggestions.find((item) => item.label === 'nodes');
-    expect(nodesSuggestion.insertText).toContain('nodes:\n  - name: ${1}');
-    expect(nodesSuggestion.insertTextRules).toBe(4);
+    expect(nodesSuggestion.insertText).toBe('nodes:\n  - name: ');
 
     const linksResult = provider.provideCompletionItems(
       { getValue: () => 'li', getLineContent: () => 'li' },
       { lineNumber: 1, column: 3 }
     );
     const linksSuggestion = linksResult.suggestions.find((item) => item.label === 'links');
-    expect(linksSuggestion.insertText).toContain('links:\n  - from: ${1}');
-    expect(linksSuggestion.command).toEqual({
-      id: 'editor.action.triggerSuggest',
-      title: 'Trigger Link Suggestions',
-    });
+    expect(linksSuggestion.insertText).toBe('links:\n  - from: ');
 
-    const indentedRootLinksResult = provider.provideCompletionItems(
-      { getValue: () => 'nodes:\n  - name: A\n  li', getLineContent: () => '  li' },
-      { lineNumber: 3, column: 5 }
+    const nextNodeAfterTypeResult = provider.provideCompletionItems(
+      {
+        getValue: () => 'nodes:\n  - name: foobar\n    type: router\n    ',
+        getLineContent: () => '    ',
+      },
+      { lineNumber: 4, column: 5 }
     );
-    const indentedRootLinksSuggestion = indentedRootLinksResult.suggestions.find(
-      (item) => item.label === 'links'
+    const nextNodeSuggestion = nextNodeAfterTypeResult.suggestions.find((item) => item.label === '- name');
+    expect(nextNodeSuggestion).toBeTruthy();
+    expect(nextNodeSuggestion.insertText).toBe('  - name: ');
+    expect(nextNodeSuggestion.range.startColumn).toBe(1);
+
+    const continueNodeAfterNameResult = provider.provideCompletionItems(
+      {
+        getValue: () => 'nodes:\n  - name: foobar\n  ',
+        getLineContent: () => '  ',
+      },
+      { lineNumber: 3, column: 3 }
     );
-    expect(indentedRootLinksSuggestion.insertText).toContain('links:\n  - from: ${1}');
+    expect(continueNodeAfterNameResult.suggestions.map((item) => item.label)).toEqual([
+      '- name',
+      '  type',
+      '  ports',
+      '  nodes',
+    ]);
+    const continueTypeSuggestion = continueNodeAfterNameResult.suggestions.find((item) => item.label === '  type');
+    expect(continueTypeSuggestion).toBeTruthy();
+    expect(continueTypeSuggestion.insertText).toBe('    type: ');
+    expect(continueTypeSuggestion.range.startColumn).toBe(1);
   });
 });
 
@@ -634,23 +703,29 @@ describe('helpers', () => {
   it('getYamlAutocompleteContext returns root key context', () => {
     const yaml = 'no';
     const context = getYamlAutocompleteContext(yaml, 1, 3);
-    expect(context).toEqual({ kind: 'key', section: 'root', prefix: 'no' });
+    expect(context).toEqual({ kind: 'rootKey', section: 'root', prefix: 'no' });
     expect(getYamlAutocompleteSuggestions(context)).toEqual(['nodes']);
   });
 
-  it('getYamlAutocompleteSuggestions supports edges alias at root', () => {
-    const context = { kind: 'key', section: 'root', prefix: 'ed' };
-    expect(getYamlAutocompleteSuggestions(context)).toEqual(['edges']);
+  it('getYamlAutocompleteSuggestions only returns schema root sections', () => {
+    const context = { kind: 'rootKey', section: 'root', prefix: '' };
+    expect(getYamlAutocompleteSuggestions(context)).toEqual(['nodes', 'links']);
+  });
+
+  it('getYamlAutocompleteSuggestions orders missing root section first', () => {
+    const context = { kind: 'rootKey', section: 'root', prefix: '' };
+    expect(getYamlAutocompleteSuggestions(context, { rootSectionPresence: new Set(['nodes']) })).toEqual([
+      'links',
+      'nodes',
+    ]);
   });
 
   it('getYamlAutocompleteSuggestions prioritizes next required link key and suppresses used keys', () => {
     const context = { kind: 'key', section: 'links', prefix: '' };
     const suggestions = getYamlAutocompleteSuggestions(context, {
-      state: 'link.key',
       objectKeys: ['from'],
     });
-    expect(suggestions[0]).toBe('to');
-    expect(suggestions).not.toContain('from');
+    expect(suggestions).toEqual(['to']);
   });
 
   it('getYamlAutocompleteSuggestions suggests endpoint values from graph entities', () => {
@@ -677,22 +752,43 @@ describe('helpers', () => {
   it('getYamlAutocompleteContext returns node key context under nodes section', () => {
     const yaml = 'nodes:\n  - na';
     const context = getYamlAutocompleteContext(yaml, 2, 7);
-    expect(context).toEqual({ kind: 'key', section: 'nodes', prefix: 'na' });
-    expect(getYamlAutocompleteSuggestions(context)).toEqual(['name']);
+    expect(context).toEqual({ kind: 'itemKey', section: 'nodes', prefix: 'na' });
+    expect(getYamlAutocompleteSuggestions(context)).toEqual(['- name']);
   });
 
   it('getYamlAutocompleteContext returns link key context under links section', () => {
-    const yaml = 'links:\n  - la';
-    const context = getYamlAutocompleteContext(yaml, 2, 7);
+    const yaml = 'links:\n  - from: A\n    la';
+    const context = getYamlAutocompleteContext(yaml, 3, 7);
     expect(context).toEqual({ kind: 'key', section: 'links', prefix: 'la' });
     expect(getYamlAutocompleteSuggestions(context)).toEqual(['label']);
   });
 
-  it('getYamlAutocompleteContext treats indented root key line as root context', () => {
-    const yaml = 'nodes:\n  - name: A\n  li';
+  it('getYamlAutocompleteContext keeps indented line under section item context', () => {
+    const yaml = 'nodes:\n  - name: A\n  ';
     const context = getYamlAutocompleteContext(yaml, 3, 5);
-    expect(context).toEqual({ kind: 'key', section: 'root', prefix: 'li' });
-    expect(getYamlAutocompleteSuggestions(context)).toEqual(['links']);
+    expect(context).toEqual({ kind: 'itemKey', section: 'nodes', prefix: '' });
+    expect(getYamlAutocompleteSuggestions(context, { itemContextKeys: ['name'], canContinueItemContext: true })).toEqual(
+      ['- name', '  type', '  ports', '  nodes']
+    );
+  });
+
+  it('getYamlAutocompleteContext treats blank continuation after node type as next item context', () => {
+    const yaml = 'nodes:\n  - name: foobar\n    type: router\n    ';
+    const context = getYamlAutocompleteContext(yaml, 4, 5);
+    expect(context).toEqual({ kind: 'itemKey', section: 'nodes', prefix: '' });
+    expect(
+      getYamlAutocompleteSuggestions(context, { itemContextKeys: ['name', 'type'], canContinueItemContext: true })
+    ).toEqual(['- name']);
+  });
+
+  it('getYamlAutocompleteSuggestions omits node keys already defined on the same node', () => {
+    const context = { kind: 'itemKey', section: 'nodes', prefix: '' };
+    expect(
+      getYamlAutocompleteSuggestions(context, { itemContextKeys: ['name', 'ports'], canContinueItemContext: true })
+    ).toEqual(['- name', '  type', '  nodes']);
+    expect(
+      getYamlAutocompleteSuggestions(context, { itemContextKeys: ['name', 'type'], canContinueItemContext: true })
+    ).toEqual(['- name']);
   });
 
   it('computeIndentBackspaceDeleteCount removes up to previous indent boundary on empty line', () => {
@@ -707,6 +803,20 @@ describe('helpers', () => {
     const context = getYamlAutocompleteContext(yaml, 3, 13);
     expect(context).toEqual({ kind: 'nodeTypeValue', section: 'nodes', prefix: 'ro' });
     expect(getYamlAutocompleteSuggestions(context)).toContain('router');
+  });
+
+  it('getYamlAutocompleteContext returns link type value context', () => {
+    const yaml = 'links:\n  - from: A\n    to: B\n    type: di';
+    const context = getYamlAutocompleteContext(yaml, 4, 13);
+    expect(context).toEqual({ kind: 'linkTypeValue', section: 'links', prefix: 'di' });
+    expect(getYamlAutocompleteSuggestions(context)).toContain('directed');
+  });
+
+  it('getYamlAutocompleteSuggestions never returns id as a key', () => {
+    const nodeKeySuggestions = getYamlAutocompleteSuggestions({ kind: 'key', section: 'nodes', prefix: 'i' });
+    const linkKeySuggestions = getYamlAutocompleteSuggestions({ kind: 'key', section: 'links', prefix: 'i' });
+    expect(nodeKeySuggestions).toEqual([]);
+    expect(linkKeySuggestions).toEqual([]);
   });
 
   it('getYamlAutocompleteContext returns endpoint value context inside links', () => {
