@@ -147,6 +147,18 @@ test('root-boundary Backspace keeps same line and suggests missing root sections
   await expect.poll(async () => suggestionLabels(page)).toEqual(['- nodes:']);
 });
 
+test('deleting links section auto-opens missing root suggestion', async ({ page }) => {
+  await setEditorState(page, 'nodes:\n  - name: A\nlinks:\n  - from: A\n    to: A', 3, 1);
+  await page.evaluate(() => {
+    const api = (window as any).__graphEditorE2E;
+    api.setPosition(3, 1);
+    api.focus();
+    api.setValue('nodes:\n  - name: A\n');
+    api.setPosition(3, 1);
+  });
+  await expect.poll(async () => suggestionLabels(page)).toEqual(['- links:']);
+});
+
 test('from endpoint supports ":" branch and Enter auto-advances to "to:"', async ({ page }) => {
   await setEditorState(page, 'nodes:\n  - name: A\nlinks:\n  - from: A', 4, 12);
   await triggerSuggest(page);
@@ -169,4 +181,12 @@ test('to endpoint supports ":" branch and Enter advances to next link-step sugge
   );
   await triggerSuggest(page);
   await expect.poll(async () => suggestionLabels(page)).toEqual(['- from', 'label', 'type']);
+});
+
+test('label Enter advances to next link-step suggestions without re-suggesting label', async ({ page }) => {
+  await setEditorState(page, 'links:\n  - from: A\n    to: B\n    label: my_link_label', 4, 25);
+  await pressEditorKey(page, 'Enter');
+  await expect.poll(async () => editorValue(page)).toBe('links:\n  - from: A\n    to: B\n    label: my_link_label\n  ');
+  await triggerSuggest(page);
+  await expect.poll(async () => suggestionLabels(page)).toEqual(['- from', 'type']);
 });

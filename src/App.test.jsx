@@ -607,6 +607,32 @@ describe('App', () => {
     ]);
   });
 
+  it('goes to next link-step line on Enter after `label` value', async () => {
+    installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
+    render(<App />);
+    await flushDebounce();
+
+    editorModelState.value = 'links:\n  - from: A\n    to: B\n    label: my_link_label';
+    editorModelState.lineContent = '    label: my_link_label';
+    editorModelState.selection = {
+      isEmpty: () => true,
+      getPosition: () => ({ lineNumber: 4, column: 25 }),
+    };
+    const preventDefault = vi.fn();
+
+    await act(async () => {
+      editorKeyDownState.handler({ keyCode: 3, preventDefault });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(executeEditsSpy).toHaveBeenCalledWith('link-label-next-step', [
+      expect.objectContaining({
+        text: '\n  ',
+      }),
+    ]);
+  });
+
   it('triggers suggest on empty document focus', async () => {
     installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
     render(<App />);
@@ -749,6 +775,15 @@ describe('App', () => {
     expect(endpointToSuffix.suggestions.map((item) => item.label)).toEqual([':']);
     expect(endpointToSuffix.suggestions[0].insertText).toBe(':');
 
+    const linkAfterLabelResult = provider.provideCompletionItems(
+      {
+        getValue: () => 'links:\n  - from: A\n    to: B\n    label: my_link_label\n  ',
+        getLineContent: () => '  ',
+      },
+      { lineNumber: 5, column: 3 }
+    );
+    expect(linkAfterLabelResult.suggestions.map((item) => item.label)).toEqual(['- from', '  type']);
+
     const rootResult = provider.provideCompletionItems(
       { getValue: () => '', getLineContent: () => '' },
       { lineNumber: 1, column: 1 }
@@ -866,12 +901,10 @@ describe('helpers', () => {
     expect(getYamlAutocompleteSuggestions(context)).toEqual(['nodes', 'links']);
   });
 
-  it('getYamlAutocompleteSuggestions orders missing root section first', () => {
+  it('getYamlAutocompleteSuggestions only returns missing root sections', () => {
     const context = { kind: 'rootKey', section: 'root', prefix: '' };
-    expect(getYamlAutocompleteSuggestions(context, { rootSectionPresence: new Set(['nodes']) })).toEqual([
-      'links',
-      'nodes',
-    ]);
+    expect(getYamlAutocompleteSuggestions(context, { rootSectionPresence: new Set(['nodes']) })).toEqual(['links']);
+    expect(getYamlAutocompleteSuggestions(context, { rootSectionPresence: new Set(['nodes', 'links']) })).toEqual([]);
   });
 
   it('getYamlAutocompleteSuggestions returns dashed root boundary items excluding existing sections', () => {

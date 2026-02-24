@@ -5,47 +5,42 @@
 [![Tests](https://github.com/GraphRapids/GraphEditor/actions/workflows/test.yml/badge.svg)](https://github.com/GraphRapids/GraphEditor/actions/workflows/test.yml)
 [![Secret Scan](https://github.com/GraphRapids/GraphEditor/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/GraphRapids/GraphEditor/actions/workflows/gitleaks.yml)
 
-GraphEditor is the web authoring UI in the GraphRapids suite.
+GraphEditor is a React + Monaco web app for authoring graph YAML and previewing rendered SVG from GraphAPI.
 
-It provides a Monaco-based YAML editor and live SVG preview pipeline backed by GraphAPI.
+## Current Capabilities
 
-## Features
-
-- Monaco YAML editor with near real-time rendering
-- Context-aware YAML autocomplete for graph keys and node types
-- JSON Schema validation against GraphAPI schema endpoint
-- Debounced and abortable render requests to avoid stale preview updates
-- Interactive SVG pan/zoom/fit toolbar via `react-svg-pan-zoom`
-- Built-in light/dark mode toggle with SVG color-scheme synchronization
-- Download rendered SVG output
+- Monaco YAML editor with a stable model lifecycle (`@monaco-editor/react`)
+- Step-by-step autocomplete driven by YAML context + schema-derived rules
+- Live validation:
+  - YAML syntax (`js-yaml`)
+  - schema validation (`ajv`)
+  - Monaco markers for both
+- Live SVG preview pipeline with debounce, request cancellation, stale response protection, and small render cache
+- Interactive pan/zoom preview (`react-svg-pan-zoom`)
+- Download rendered SVG
+- Light/dark theme toggle
 
 ## Requirements
 
 - Node.js `>=20`
 - npm `>=10`
-- GraphAPI running locally (default: `http://127.0.0.1:8000`)
+- GraphAPI running (default `http://127.0.0.1:8000`)
 
-## Installation
+## Setup
 
 ```bash
 npm install
-```
-
-## Quick Start
-
-```bash
-# Start GraphAPI first (in its own repository)
-# then run GraphEditor
+cp .env.example .env.local
 npm run dev
 ```
 
-Open:
+Default local URL:
 
 - `http://127.0.0.1:9000`
 
-## Environment Configuration
+## Environment Variables
 
-Vite now reads address/port configuration from environment variables:
+Dev host/port and GraphAPI target are environment-driven:
 
 ```bash
 GRAPHEDITOR_HOST=127.0.0.1
@@ -54,149 +49,127 @@ GRAPHAPI_HOST=127.0.0.1
 GRAPHAPI_PORT=8000
 ```
 
-You can place these in `.env.local` (recommended) or export them in your shell before running `npm run dev`.
+`vite.config.js` uses these for:
 
-## CLI Reference
+- Vite dev server host/port
+- `/api` proxy target to GraphAPI
 
-GraphEditor is a browser application and does not expose a CLI.
-
-Available npm scripts:
+## NPM Scripts
 
 ```bash
-npm run dev      # local development server (host/port via GRAPHEDITOR_HOST/GRAPHEDITOR_PORT)
-npm run test     # vitest + coverage thresholds
-npm run build    # production build
-npm run preview  # preview built assets
+npm run dev              # start Vite dev server
+npm run build            # production build
+npm run preview          # preview production build
+npm run test             # unit/integration tests (Vitest + coverage)
+npm run test:watch       # Vitest watch mode
+npm run test:e2e         # Playwright e2e tests
+npm run test:e2e:headed  # Playwright headed mode
 ```
 
-## Input Expectations
+## API Endpoints Used
 
-GraphEditor validates and submits minimal graph input accepted by GraphAPI.
-
-Typical structure:
-
-- `nodes[]`: string or object (`name`, `type`, `id`, nested `nodes`, nested `links`)
-- `links[]`: string or object (`id`, `label`, `type`, `from`, `to`)
-
-Schema source:
-
-- `/api/schemas/minimal-input.schema.json` (proxied to GraphAPI)
-
-### YAML Autocomplete
-
-Autocomplete is enabled in the Monaco YAML editor with context-aware suggestions:
-
-- Root keys: `nodes`, `links` (`edges` is accepted as an alias suggestion and inserts `links`)
-- Node object keys: `name`, `type`, `id`, `nodes`, `links`
-- Link object keys: `from`, `to`, `label`, `type`, `id`
-- Node `type` values: predefined GraphLoom node types (for example `router`, `switch`, `firewall`, `cloud`, etc.)
-
-Insertion behavior:
-
-- Key completions insert `key: `
-- Collection keys (`nodes`, `links`, `edges`) insert a multiline snippet with indentation (`key:\n  `)
-- Selecting `type` triggers follow-up suggestions so node type values pop immediately
-- Pressing `Tab` also triggers suggest after indentation is inserted
-
-### Extending Graph Intelligence
-
-GraphEditor now uses layered document analysis and cached metadata for authoring intelligence:
-
-- `YAML syntax layer`: parse with `js-yaml`, surface Monaco markers with line/column, skip render API on syntax error.
-- `Schema layer`: validate with AJV against `/api/schemas/minimal-input.schema.json`, map instance paths to YAML markers when possible.
-- `Domain layer`: collect node references and endpoint metadata to power `from`/`to` value suggestions.
-
-To extend completions and validation:
-
-1. Update domain key/value registries in `src/AppCore.jsx` (`NODE_KEYS`, `LINK_KEYS`, `STYLE_KEYS`, `STYLE_VALUE_SUGGESTIONS`).
-2. Extend key docs in `KEY_DOCUMENTATION` for completion docs + hover help.
-3. Add context rules in `getYamlAutocompleteContext` and `getYamlAutocompleteSuggestions`.
-4. If schema introduces new enums (for example node types), they are auto-loaded from schema via `extractNodeTypesFromSchema`.
-
-### Render Pipeline Guarantees
-
-- Debounced render dispatch (`170-380ms`, size-aware).
-- Client-side YAML parse and schema validation before API requests.
-- Abort stale requests via `AbortController`.
-- Guard against out-of-order responses with monotonic request IDs.
-- Cache successful renders by normalized content hash to avoid repeated network calls.
-- Keep last good SVG visible on failures while surfacing clear error messages.
-
-## API Integration
-
-During development, Vite proxies:
-
-- `/api/*` -> `http://${GRAPHAPI_HOST:-127.0.0.1}:${GRAPHAPI_PORT:-8000}/*`
-
-Main endpoints used:
+Through the local `/api` proxy:
 
 - `GET /api/schemas/minimal-input.schema.json`
 - `POST /api/render/svg`
 
-## Troubleshooting
+## Autocomplete Behavior (Current)
 
-### `Schema load failed`
+Autocomplete is intentionally next-step oriented (not full templates everywhere):
 
-Confirm GraphAPI is running and reachable at `http://${GRAPHAPI_HOST}:${GRAPHAPI_PORT}`.
+- Root:
+  - Empty document suggests missing top-level sections (`nodes`, `links`)
+  - At root, suggestions only include sections that are still missing
+  - Deleting a root section (for example `links`) re-opens suggestions for the missing section
+- Node flow:
+  - Starts from `- name: `
+  - After node name + enter, suggests next logical keys (for example `type`, `ports`, `nodes`) based on what is already present
+  - Already-defined keys for the same node are not suggested again
+- Link flow:
+  - Starts from `- from: `
+  - `from` and `to` values suggest known node names from the current document
+  - When a node name matches exactly in `from`/`to`, `:` is suggested to continue with a port suffix
+- Value policies:
+  - No value suggestions for `name` and `label` (free user input)
+  - `type` values are suggested from schema/built-in registries
+  - `id` is excluded from autocomplete suggestions
 
-### Preview is blank
+Detailed scenario contract lives in:
 
-Check GraphAPI response body and browser console. Ensure the response contains valid `<svg ...>...</svg>` output.
+- `AUTOCOMPLETE_BEHAVIOR_TEMPLATE.md`
 
-### `Address already in use` on port 9000
+## Validation and Rendering Pipeline
 
-Stop the existing process on `${GRAPHEDITOR_HOST}:${GRAPHEDITOR_PORT}` or set different environment variables.
+1. Parse YAML locally.
+2. Validate normalized input against loaded JSON Schema.
+3. If valid, debounce render request (`170-380ms`, size-based).
+4. Cancel previous in-flight render requests (`AbortController`).
+5. Ignore out-of-order responses with monotonic request IDs.
+6. Cache successful renders by normalized document hash.
 
-## Development
+Error handling:
 
-```bash
-npm install
-npm run test
-npm run build
-```
+- Syntax/schema errors block API render calls and show markers/messages.
+- API/network/render errors are surfaced while keeping the last good SVG visible.
+- Retry is limited to retryable failures (single retry with short delay).
 
-## Project Layout
+## SVG Safety
+
+The app does not inject raw returned SVG via `dangerouslySetInnerHTML`.
+
+Instead, rendered SVG is loaded through a Blob/Object URL and displayed as an `<image>` inside the viewer SVG. This isolates remote SVG markup from direct DOM injection.
+
+## Architecture
 
 ```text
-index.html                    # Vite entry HTML
-src/main.jsx                  # React bootstrap
-src/App.jsx                   # Application logic
-src/App.test.jsx              # App test suite
-src/test/setup.js             # Test environment setup
-src/styles.css                # UI styling
-vite.config.js                # Dev server and /api proxy
-.github/workflows/            # CI, tests, release, secret scanning
+src/main.jsx                        # React entrypoint
+src/App.jsx                         # re-export wrapper for AppCore
+src/AppCore.jsx                     # app state, validation, render pipeline, autocomplete logic
+src/GraphYamlEditor.jsx             # reusable Monaco editor component + Monaco integration
+src/App.test.jsx                    # unit/integration tests
+e2e/autocomplete.behavior.spec.ts   # Playwright autocomplete behavior tests
+src/styles.css                      # UI styles
+vite.config.js                      # env-based host/port + /api proxy + test config
 ```
 
-## Governance and Community
+## Extending Autocomplete and Validation
+
+Main extension points:
+
+- `src/AppCore.jsx`
+  - `DEFAULT_AUTOCOMPLETE_SPEC`
+  - `extractAutocompleteSpecFromSchema`
+  - `getYamlAutocompleteContext`
+  - `getYamlAutocompleteSuggestions`
+  - `extractNodeTypesFromSchema` / `extractLinkTypesFromSchema`
+- `src/GraphYamlEditor.jsx`
+  - Monaco completion provider registration
+  - insertion behavior and post-insert trigger behavior
+  - keyboard-driven next-step transitions
+
+## Troubleshooting
+
+### Schema load failed
+
+Verify GraphAPI is reachable at `http://${GRAPHAPI_HOST}:${GRAPHAPI_PORT}`.
+
+### Rendered preview stays empty
+
+Check API response payload/content-type. The app expects SVG text, or JSON containing an SVG string in nested fields such as `svg`, `data`, `result`, or `output`.
+
+### Port already in use
+
+Set a different `GRAPHEDITOR_PORT` or stop the process using `${GRAPHEDITOR_HOST}:${GRAPHEDITOR_PORT}`.
+
+## Governance
 
 - Security policy: `SECURITY.md`
 - Contribution guide: `CONTRIBUTING.md`
 - Code of conduct: `CODE_OF_CONDUCT.md`
 - Changelog: `CHANGELOG.md`
 - Release process: `RELEASE.md`
-
-## Automation
-
-- CI build checks: `.github/workflows/ci.yml`
-- Test/build matrix: `.github/workflows/test.yml`
-- Secret scanning (gitleaks): `.github/workflows/gitleaks.yml`
-- Tagged releases: `.github/workflows/release.yml`
-- Dependency updates: `.github/dependabot.yml`
-
-## GraphRapids Suite
-
-GraphEditor is part of GraphRapids:
-
-- `GraphLoom`: graph enrichment pipeline
-- `GraphRender`: SVG rendering engine
-- `GraphAPI`: API service integrating GraphLoom + GraphRender
-- `GraphTheme`: shared theming (in progress)
-
-## Third-Party Notices
-
-See `THIRD_PARTY_NOTICES.md` for dependency and license notices.
+- Third-party notices: `THIRD_PARTY_NOTICES.md`
 
 ## License
 
-GraphEditor is licensed under Apache License 2.0. See `LICENSE`.
+Apache License 2.0 (`LICENSE`).
