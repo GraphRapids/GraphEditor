@@ -43,6 +43,19 @@ Open:
 
 - `http://127.0.0.1:9000`
 
+## Environment Configuration
+
+Vite now reads address/port configuration from environment variables:
+
+```bash
+GRAPHEDITOR_HOST=127.0.0.1
+GRAPHEDITOR_PORT=9000
+GRAPHAPI_HOST=127.0.0.1
+GRAPHAPI_PORT=8000
+```
+
+You can place these in `.env.local` (recommended) or export them in your shell before running `npm run dev`.
+
 ## CLI Reference
 
 GraphEditor is a browser application and does not expose a CLI.
@@ -50,7 +63,7 @@ GraphEditor is a browser application and does not expose a CLI.
 Available npm scripts:
 
 ```bash
-npm run dev      # local development server (port 9000)
+npm run dev      # local development server (host/port via GRAPHEDITOR_HOST/GRAPHEDITOR_PORT)
 npm run test     # vitest + coverage thresholds
 npm run build    # production build
 npm run preview  # preview built assets
@@ -85,11 +98,35 @@ Insertion behavior:
 - Selecting `type` triggers follow-up suggestions so node type values pop immediately
 - Pressing `Tab` also triggers suggest after indentation is inserted
 
+### Extending Graph Intelligence
+
+GraphEditor now uses layered document analysis and cached metadata for authoring intelligence:
+
+- `YAML syntax layer`: parse with `js-yaml`, surface Monaco markers with line/column, skip render API on syntax error.
+- `Schema layer`: validate with AJV against `/api/schemas/minimal-input.schema.json`, map instance paths to YAML markers when possible.
+- `Domain layer`: collect node references and endpoint metadata to power `from`/`to` value suggestions.
+
+To extend completions and validation:
+
+1. Update domain key/value registries in `src/AppCore.jsx` (`NODE_KEYS`, `LINK_KEYS`, `STYLE_KEYS`, `STYLE_VALUE_SUGGESTIONS`).
+2. Extend key docs in `KEY_DOCUMENTATION` for completion docs + hover help.
+3. Add context rules in `getYamlAutocompleteContext` and `getYamlAutocompleteSuggestions`.
+4. If schema introduces new enums (for example node types), they are auto-loaded from schema via `extractNodeTypesFromSchema`.
+
+### Render Pipeline Guarantees
+
+- Debounced render dispatch (`170-380ms`, size-aware).
+- Client-side YAML parse and schema validation before API requests.
+- Abort stale requests via `AbortController`.
+- Guard against out-of-order responses with monotonic request IDs.
+- Cache successful renders by normalized content hash to avoid repeated network calls.
+- Keep last good SVG visible on failures while surfacing clear error messages.
+
 ## API Integration
 
 During development, Vite proxies:
 
-- `/api/*` -> `http://127.0.0.1:8000/*`
+- `/api/*` -> `http://${GRAPHAPI_HOST:-127.0.0.1}:${GRAPHAPI_PORT:-8000}/*`
 
 Main endpoints used:
 
@@ -100,7 +137,7 @@ Main endpoints used:
 
 ### `Schema load failed`
 
-Confirm GraphAPI is running and reachable at `http://127.0.0.1:8000`.
+Confirm GraphAPI is running and reachable at `http://${GRAPHAPI_HOST}:${GRAPHAPI_PORT}`.
 
 ### Preview is blank
 
@@ -108,7 +145,7 @@ Check GraphAPI response body and browser console. Ensure the response contains v
 
 ### `Address already in use` on port 9000
 
-Stop the existing process on `127.0.0.1:9000` or adjust `vite.config.js` server port.
+Stop the existing process on `${GRAPHEDITOR_HOST}:${GRAPHEDITOR_PORT}` or set different environment variables.
 
 ## Development
 
