@@ -7,11 +7,22 @@ import { UncontrolledReactSVGPanZoom, fitToViewer as fitValueToViewer } from 're
 
 const API_BASE = '/api';
 const DEBOUNCE_MS = 450;
+const INDENT_SIZE = 2;
 const STRING_COERCION_KEYS = new Set(['name', 'label', 'id', 'from', 'to']);
 const COLLECTION_KEYS = new Set(['nodes', 'links', 'edges']);
 const ROOT_KEYS = ['nodes', 'links', 'edges'];
 const NODE_KEYS = ['name', 'type', 'id', 'nodes', 'links'];
 const LINK_KEYS = ['from', 'to', 'label', 'type', 'id'];
+const REQUIRED_NODE_ORDER = ['name', 'type', 'id', 'nodes', 'links'];
+const REQUIRED_LINK_ORDER = ['from', 'to', 'label', 'type', 'id'];
+const AUTOCOMPLETE_STATE = {
+  ROOT_KEY: 'root.key',
+  NODE_KEY: 'node.key',
+  LINK_KEY: 'link.key',
+  NODE_TYPE_VALUE: 'node.type.value',
+  LINK_ENDPOINT_VALUE: 'link.endpoint.value',
+  NONE: 'none',
+};
 const NODE_TYPE_SUGGESTIONS = [
   'router',
   'switch',
@@ -255,6 +266,16 @@ export function getYamlAutocompleteContext(text, lineNumber, column) {
     return { kind: 'nodeTypeValue', section, prefix };
   }
 
+  const endpointMatch = trimmedLeft.match(/^(?:-\s*)?(from|to):\s*([^\s]*)$/);
+  if (endpointMatch && section === 'links') {
+    return {
+      kind: 'endpointValue',
+      section,
+      endpoint: endpointMatch[1],
+      prefix: endpointMatch[2] || '',
+    };
+  }
+
   const listKeyMatch = trimmedLeft.match(/^-\s*([a-zA-Z_][a-zA-Z0-9_]*)?$/);
   if (listKeyMatch) {
     return {
@@ -274,21 +295,254 @@ export function getYamlAutocompleteContext(text, lineNumber, column) {
   return { kind: 'none', section, prefix: '' };
 }
 
-export function getYamlAutocompleteSuggestions(context) {
+function inferAutocompleteState(context) {
   if (context.kind === 'nodeTypeValue') {
-    return NODE_TYPE_SUGGESTIONS.filter((item) => item.startsWith(context.prefix.toLowerCase()));
+    return AUTOCOMPLETE_STATE.NODE_TYPE_VALUE;
+  }
+  if (context.kind === 'endpointValue' && context.section === 'links') {
+    return AUTOCOMPLETE_STATE.LINK_ENDPOINT_VALUE;
+  }
+  if (context.kind === 'key' && context.section === 'root') {
+    return AUTOCOMPLETE_STATE.ROOT_KEY;
+  }
+  if (context.kind === 'key' && context.section === 'nodes') {
+    return AUTOCOMPLETE_STATE.NODE_KEY;
+  }
+  if (context.kind === 'key' && context.section === 'links') {
+    return AUTOCOMPLETE_STATE.LINK_KEY;
+  }
+  return AUTOCOMPLETE_STATE.NONE;
+}
+
+function extractKeyFromLine(line) {
+  const match = line.trimStart().match(/^(?:-\s*)?([a-zA-Z_][a-zA-Z0-9_]*)\s*:/);
+  return match ? match[1] : null;
+}
+
+function collectCurrentObjectKeys(lines, lineIndex, section) {
+  if (section !== 'nodes' && section !== 'links') {
+    return [];
+  }
+  let start = lineIndex;
+  let objectIndent = null;
+  for (let i = lineIndex; i >= 0; i -= 1) {
+    const line = lines[i] || '';
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const indent = lineIndent(line);
+    if (/^-\s*/.test(trimmed)) {
+      start = i;
+      objectIndent = indent;
+      break;
+    }
+  }
+  if (objectIndent === null) {
+    return [];
+  }
+
+  const keys = [];
+  for (let i = start; i < lines.length; i += 1) {
+    const line = lines[i] || '';
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const indent = lineIndent(line);
+    if (i > start && indent <= objectIndent && /^-\s*/.test(trimmed)) {
+      break;
+    }
+    if (i > start && indent < objectIndent) {
+      break;
+    }
+    if (indent > objectIndent + INDENT_SIZE) {
+      continue;
+    }
+    const key = extractKeyFromLine(line);
+    if (key) {
+      keys.push(key);
+    }
+  }
+  return [...new Set(keys)];
+}
+
+function collectGraphEntities(text) {
+  const nodeNames = new Set();
+  const portsByNode = new Map();
+
+  function addEndpoint(endpoint) {
+    if (typeof endpoint !== 'string') {
+      return;
+    }
+    const [node, port] = endpoint.split(':');
+    if (!node) {
+      return;
+    }
+    nodeNames.add(node);
+    if (!port) {
+      return;
+    }
+    if (!portsByNode.has(node)) {
+      portsByNode.set(node, new Set());
+    }
+    portsByNode.get(node).add(port);
+  }
+
+  function visit(graphObj) {
+    if (!graphObj || typeof graphObj !== 'object') {
+      return;
+    }
+    const nodes = Array.isArray(graphObj.nodes) ? graphObj.nodes : [];
+    const links = Array.isArray(graphObj.links) ? graphObj.links : [];
+    for (const node of nodes) {
+      if (typeof node === 'string') {
+        nodeNames.add(node);
+        continue;
+      }
+      if (!node || typeof node !== 'object') {
+        continue;
+      }
+      if (typeof node.name === 'string') {
+        nodeNames.add(node.name);
+      }
+      visit(node);
+    }
+    for (const link of links) {
+      if (typeof link !== 'object' || !link) {
+        continue;
+      }
+      addEndpoint(link.from);
+      addEndpoint(link.to);
+    }
+  }
+
+  try {
+    const parsed = YAML.load(text);
+    visit(parsed);
+  } catch (_err) {
+    // Ignore parse errors and return best effort entities.
+  }
+
+  return {
+    nodeNames: [...nodeNames].sort(),
+    portsByNode,
+  };
+}
+
+function endpointSuggestions(prefix, entities) {
+  const normalizedPrefix = (prefix || '').toLowerCase();
+  if (!normalizedPrefix.includes(':')) {
+    return entities.nodeNames.filter((name) => name.toLowerCase().startsWith(normalizedPrefix));
+  }
+  const [nodePart, portPartRaw] = normalizedPrefix.split(':');
+  const portPart = portPartRaw || '';
+  const matches = [];
+  for (const nodeName of entities.nodeNames) {
+    if (!nodeName.toLowerCase().startsWith(nodePart)) {
+      continue;
+    }
+    const ports = entities.portsByNode.get(nodeName) || new Set();
+    for (const port of ports) {
+      if (port.toLowerCase().startsWith(portPart)) {
+        matches.push(`${nodeName}:${port}`);
+      }
+    }
+  }
+  return matches;
+}
+
+function orderedKeySuggestions(items, usedKeys, requiredOrder, prefix) {
+  const used = new Set(usedKeys || []);
+  let filtered = items.filter((key) => !used.has(key));
+  if (prefix) {
+    filtered = filtered.filter((key) => key.startsWith(prefix.toLowerCase()));
+  }
+  if (prefix || !requiredOrder?.length) {
+    return filtered;
+  }
+  const nextRequired = requiredOrder.find((key) => filtered.includes(key));
+  if (!nextRequired) {
+    return filtered;
+  }
+  return [nextRequired, ...filtered.filter((key) => key !== nextRequired)];
+}
+
+function buildAutocompleteRuntime(text, lineNumber, column) {
+  const context = getYamlAutocompleteContext(text, lineNumber, column);
+  const lines = text.split('\n');
+  const lineIndex = Math.max(0, Math.min(lineNumber - 1, lines.length - 1));
+  return {
+    context,
+    state: inferAutocompleteState(context),
+    objectKeys: collectCurrentObjectKeys(lines, lineIndex, context.section),
+    entities: collectGraphEntities(text),
+  };
+}
+
+export function extractNodeTypesFromSchema(schema) {
+  const candidates = [];
+  const addEnum = (arr) => {
+    if (!Array.isArray(arr)) {
+      return;
+    }
+    for (const value of arr) {
+      if (typeof value === 'string' && value.trim()) {
+        candidates.push(value);
+      }
+    }
+  };
+  try {
+    addEnum(schema?.$defs?.MinimalNodeIn?.properties?.type?.enum);
+    const anyOf = schema?.$defs?.MinimalNodeIn?.properties?.type?.anyOf;
+    if (Array.isArray(anyOf)) {
+      for (const item of anyOf) {
+        addEnum(item?.enum);
+      }
+    }
+  } catch (_err) {
+    // fallback to default list
+  }
+  return [...new Set(candidates)];
+}
+
+export function getYamlAutocompleteSuggestions(context, meta = {}) {
+  const state = meta.state || inferAutocompleteState(context);
+  const nodeTypes =
+    Array.isArray(meta.nodeTypeSuggestions) && meta.nodeTypeSuggestions.length
+      ? meta.nodeTypeSuggestions
+      : NODE_TYPE_SUGGESTIONS;
+  if (state === AUTOCOMPLETE_STATE.NODE_TYPE_VALUE) {
+    return nodeTypes.filter((item) => item.startsWith(context.prefix.toLowerCase()));
+  }
+  if (state === AUTOCOMPLETE_STATE.LINK_ENDPOINT_VALUE) {
+    return endpointSuggestions(context.prefix, meta.entities || { nodeNames: [], portsByNode: new Map() });
   }
   if (context.kind !== 'key') {
     return [];
   }
 
   let items = ROOT_KEYS;
-  if (context.section === 'nodes') {
-    items = NODE_KEYS;
-  } else if (context.section === 'links') {
-    items = LINK_KEYS;
+  if (state === AUTOCOMPLETE_STATE.NODE_KEY) {
+    items = orderedKeySuggestions(NODE_KEYS, meta.objectKeys, REQUIRED_NODE_ORDER, context.prefix);
+    return items;
+  }
+  if (state === AUTOCOMPLETE_STATE.LINK_KEY) {
+    items = orderedKeySuggestions(LINK_KEYS, meta.objectKeys, REQUIRED_LINK_ORDER, context.prefix);
+    return items;
   }
   return items.filter((item) => item.startsWith(context.prefix.toLowerCase()));
+}
+
+export function computeIndentBackspaceDeleteCount(lineContent, column, indentSize = INDENT_SIZE) {
+  const caretIndex = Math.max(0, Math.min(column - 1, lineContent.length));
+  const before = lineContent.slice(0, caretIndex);
+  const after = lineContent.slice(caretIndex);
+  if (!before || before.trim().length > 0 || after.trim().length > 0) {
+    return 0;
+  }
+  const remainder = caretIndex % indentSize;
+  return remainder === 0 ? Math.min(indentSize, caretIndex) : remainder;
 }
 
 export default function App() {
@@ -312,6 +566,8 @@ export default function App() {
   const [svgObjectUrl, setSvgObjectUrl] = useState('');
   const completionProviderRef = useRef(null);
   const tabSuggestListenerRef = useRef(null);
+  const focusSuggestListenerRef = useRef(null);
+  const nodeTypeSuggestionsRef = useRef(NODE_TYPE_SUGGESTIONS);
 
   const svgDoc = useMemo(() => parseSvgDocument(svgText), [svgText]);
   const themedSvgText = useMemo(() => applySvgColorScheme(svgText, theme), [svgText, theme]);
@@ -333,6 +589,9 @@ export default function App() {
         if (cancelled) {
           return;
         }
+        const extractedNodeTypes = extractNodeTypesFromSchema(nextSchema);
+        nodeTypeSuggestionsRef.current =
+          extractedNodeTypes.length > 0 ? extractedNodeTypes : NODE_TYPE_SUGGESTIONS;
         const ajv = new Ajv2020({ allErrors: true, strict: false });
         validateRef.current = ajv.compile(nextSchema);
         setSchema(nextSchema);
@@ -492,6 +751,9 @@ export default function App() {
       if (tabSuggestListenerRef.current) {
         tabSuggestListenerRef.current.dispose();
       }
+      if (focusSuggestListenerRef.current) {
+        focusSuggestListenerRef.current.dispose();
+      }
       if (abortRef.current) {
         abortRef.current.abort();
       }
@@ -538,12 +800,21 @@ export default function App() {
     if (tabSuggestListenerRef.current) {
       tabSuggestListenerRef.current.dispose();
     }
+    if (focusSuggestListenerRef.current) {
+      focusSuggestListenerRef.current.dispose();
+    }
     completionProviderRef.current = monaco.languages.registerCompletionItemProvider('yaml', {
       triggerCharacters: [' ', ':'],
       provideCompletionItems(model, position) {
         const text = model.getValue();
-        const context = getYamlAutocompleteContext(text, position.lineNumber, position.column);
-        const suggestions = getYamlAutocompleteSuggestions(context);
+        const runtime = buildAutocompleteRuntime(text, position.lineNumber, position.column);
+        const context = runtime.context;
+        const suggestions = getYamlAutocompleteSuggestions(context, {
+          state: runtime.state,
+          objectKeys: runtime.objectKeys,
+          entities: runtime.entities,
+          nodeTypeSuggestions: nodeTypeSuggestionsRef.current,
+        });
         if (!suggestions.length) {
           return { suggestions: [] };
         }
@@ -558,20 +829,23 @@ export default function App() {
           typeof model.getLineContent === 'function' ? model.getLineContent(position.lineNumber) : '';
         const currentIndent = lineIndent(currentLine);
         const baseIndent = context.section === 'root' ? 0 : currentIndent;
-        const childIndent = ' '.repeat(baseIndent + 2);
+        const childIndent = ' '.repeat(baseIndent + INDENT_SIZE);
         return {
           suggestions: suggestions.map((item) => {
             const canonicalKey = item === 'edges' ? 'links' : item;
             const isKeyCompletion = context.kind !== 'nodeTypeValue';
             const isCollectionKey = isKeyCompletion && COLLECTION_KEYS.has(item);
             const isLinkCollectionKey = isCollectionKey && canonicalKey === 'links';
+            const isNodeCollectionKey = isCollectionKey && canonicalKey === 'nodes';
 
             return {
               ...(isCollectionKey
                 ? {
                     insertText: isLinkCollectionKey
-                      ? `${canonicalKey}:\n${childIndent}- from: $0`
-                      : `${canonicalKey}:\n${childIndent}$0`,
+                      ? `${canonicalKey}:\n${childIndent}- from: \${1}\n${childIndent}  to: \${2}\n${childIndent}  label: \${3}\n${childIndent}  type: \${4}\n${childIndent}- from: $0`
+                      : isNodeCollectionKey
+                        ? `${canonicalKey}:\n${childIndent}- name: \${1}\n${childIndent}  type: \${2}\n${childIndent}  links:\n${childIndent}    - from: \${1}:\${3}\n${childIndent}      to: \${4}:\${5}\n${childIndent}      label: \${6}\n${childIndent}      type: \${7}\n${childIndent}- name: $0`
+                        : `${canonicalKey}:\n${childIndent}$0`,
                     insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
                   }
                 : {
@@ -581,12 +855,18 @@ export default function App() {
               kind,
               range,
               command:
-                (isKeyCompletion && item === 'type') || isLinkCollectionKey
+                (isKeyCompletion && ['type', 'from', 'to'].includes(item)) ||
+                isLinkCollectionKey ||
+                isNodeCollectionKey
                   ? {
                       id: 'editor.action.triggerSuggest',
                       title: isLinkCollectionKey
                         ? 'Trigger Link Suggestions'
-                        : 'Trigger Type Suggestions',
+                        : isNodeCollectionKey
+                          ? 'Trigger Node Suggestions'
+                          : item === 'type'
+                            ? 'Trigger Type Suggestions'
+                            : 'Trigger Endpoint Suggestions',
                     }
                   : undefined,
             };
@@ -596,14 +876,60 @@ export default function App() {
     });
 
     tabSuggestListenerRef.current = editor.onKeyDown((event) => {
-      if (event.keyCode !== monaco.KeyCode.Tab) {
+      if (event.keyCode === monaco.KeyCode.Tab) {
+        // Let Monaco apply indentation first, then open suggest at new cursor position.
+        window.setTimeout(() => {
+          editor.trigger('keyboard', 'editor.action.triggerSuggest', {});
+        }, 0);
         return;
       }
-      // Let Monaco apply indentation first, then open suggest at new cursor position.
-      window.setTimeout(() => {
-        editor.trigger('keyboard', 'editor.action.triggerSuggest', {});
-      }, 0);
+
+      if (event.keyCode !== monaco.KeyCode.Backspace) {
+        return;
+      }
+      const selection = editor.getSelection?.();
+      if (!selection || !selection.isEmpty?.()) {
+        return;
+      }
+      const model = editor.getModel?.();
+      if (!model) {
+        return;
+      }
+      const position = selection.getPosition?.();
+      if (!position) {
+        return;
+      }
+      const lineContent = model.getLineContent(position.lineNumber);
+      const deleteCount = computeIndentBackspaceDeleteCount(lineContent, position.column, INDENT_SIZE);
+      if (deleteCount <= 0) {
+        return;
+      }
+      event.preventDefault?.();
+      editor.executeEdits?.('indent-backspace', [
+        {
+          range: new monaco.Range(
+            position.lineNumber,
+            position.column - deleteCount,
+            position.lineNumber,
+            position.column
+          ),
+          text: '',
+        },
+      ]);
     });
+
+    focusSuggestListenerRef.current = editor.onDidFocusEditorText?.(() => {
+      const model = editor.getModel?.();
+      if (!model || model.getValue().trim().length > 0) {
+        return;
+      }
+      editor.trigger('focus', 'editor.action.triggerSuggest', {});
+    });
+
+    const model = editor.getModel?.();
+    if (model && model.getValue().trim().length === 0) {
+      editor.trigger('mount', 'editor.action.triggerSuggest', {});
+    }
   }
 
   return (

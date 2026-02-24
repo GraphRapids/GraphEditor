@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App, {
   applySvgColorScheme,
+  computeIndentBackspaceDeleteCount,
+  extractNodeTypesFromSchema,
   extractSvg,
   formatAjvErrors,
   getYamlAutocompleteContext,
@@ -18,16 +20,24 @@ const {
   completionProviderState,
   completionProviderDisposeSpy,
   editorKeyDownState,
+  editorFocusState,
+  editorModelState,
   editorTriggerSpy,
+  executeEditsSpy,
   keyDownListenerDisposeSpy,
+  focusListenerDisposeSpy,
 } = vi.hoisted(() => ({
   fitToViewerSpy: vi.fn(),
   registerCompletionProviderSpy: vi.fn(),
   completionProviderState: { provider: null },
   completionProviderDisposeSpy: vi.fn(),
   editorKeyDownState: { handler: null },
+  editorFocusState: { handler: null },
+  editorModelState: { value: undefined, lineContent: undefined, selection: null },
   editorTriggerSpy: vi.fn(),
+  executeEditsSpy: vi.fn(),
   keyDownListenerDisposeSpy: vi.fn(),
+  focusListenerDisposeSpy: vi.fn(),
 }));
 
 vi.mock('@monaco-editor/react', async () => {
@@ -38,6 +48,7 @@ vi.mock('@monaco-editor/react', async () => {
       const fakeMonaco = {
         KeyCode: {
           Tab: 2,
+          Backspace: 1,
         },
         Range: class {
           constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
@@ -67,6 +78,19 @@ vi.mock('@monaco-editor/react', async () => {
           editorKeyDownState.handler = handler;
           return { dispose: keyDownListenerDisposeSpy };
         },
+        onDidFocusEditorText: (handler) => {
+          editorFocusState.handler = handler;
+          return { dispose: focusListenerDisposeSpy };
+        },
+        getSelection: () => editorModelState.selection,
+        getModel: () => ({
+          getValue: () => (editorModelState.value !== undefined ? editorModelState.value : value),
+          getLineContent: (_lineNumber) =>
+            editorModelState.lineContent !== undefined
+              ? editorModelState.lineContent
+              : (editorModelState.value !== undefined ? editorModelState.value : value).split('\n')[0] || '',
+        }),
+        executeEdits: (...args) => executeEditsSpy(...args),
         trigger: (...args) => editorTriggerSpy(...args),
       };
       onMount?.(fakeEditor, fakeMonaco);
@@ -246,9 +270,15 @@ describe('App', () => {
     registerCompletionProviderSpy.mockReset();
     completionProviderDisposeSpy.mockReset();
     editorTriggerSpy.mockReset();
+    executeEditsSpy.mockReset();
     keyDownListenerDisposeSpy.mockReset();
+    focusListenerDisposeSpy.mockReset();
     completionProviderState.provider = null;
     editorKeyDownState.handler = null;
+    editorFocusState.handler = null;
+    editorModelState.value = undefined;
+    editorModelState.lineContent = undefined;
+    editorModelState.selection = null;
     vi.mocked(URL.createObjectURL).mockImplementation(() => 'blob:mock-url');
     vi.mocked(URL.revokeObjectURL).mockImplementation(() => {});
   });
@@ -433,6 +463,7 @@ describe('App', () => {
     unmount();
     expect(completionProviderDisposeSpy).toHaveBeenCalled();
     expect(keyDownListenerDisposeSpy).toHaveBeenCalled();
+    expect(focusListenerDisposeSpy).toHaveBeenCalled();
   });
 
   it('triggers suggest when Tab key is pressed in Monaco', async () => {
@@ -446,6 +477,42 @@ describe('App', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(editorTriggerSpy).toHaveBeenCalledWith('keyboard', 'editor.action.triggerSuggest', {});
+  });
+
+  it('applies indentation-aware backspace edit on whitespace-only line', async () => {
+    installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
+    render(<App />);
+    await flushDebounce();
+
+    editorModelState.value = '    ';
+    editorModelState.lineContent = '    ';
+    editorModelState.selection = {
+      isEmpty: () => true,
+      getPosition: () => ({ lineNumber: 1, column: 5 }),
+    };
+    const preventDefault = vi.fn();
+    editorKeyDownState.handler({ keyCode: 1, preventDefault });
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(executeEditsSpy).toHaveBeenCalled();
+  });
+
+  it('triggers suggest on empty document focus', async () => {
+    installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
+    render(<App />);
+    await flushDebounce();
+
+    editorModelState.value = '';
+    editorFocusState.handler();
+    expect(editorTriggerSpy).toHaveBeenCalledWith('focus', 'editor.action.triggerSuggest', {});
+  });
+
+  it('triggers suggest on mount when model is empty', async () => {
+    editorModelState.value = '';
+    installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
+    render(<App />);
+    await flushDebounce();
+    expect(editorTriggerSpy).toHaveBeenCalledWith('mount', 'editor.action.triggerSuggest', {});
   });
 
   it('completion provider suggests node keys and node types in context', async () => {
@@ -486,7 +553,7 @@ describe('App', () => {
       { lineNumber: 1, column: 3 }
     );
     const edgeAlias = rootResult.suggestions.find((item) => item.label === 'edges');
-    expect(edgeAlias.insertText).toBe('links:\n  - from: $0');
+    expect(edgeAlias.insertText).toContain('links:\n  - from: ${1}');
     expect(edgeAlias.insertTextRules).toBe(4);
     expect(edgeAlias.command).toEqual({
       id: 'editor.action.triggerSuggest',
@@ -498,7 +565,7 @@ describe('App', () => {
       { lineNumber: 1, column: 3 }
     );
     const nodesSuggestion = nodesResult.suggestions.find((item) => item.label === 'nodes');
-    expect(nodesSuggestion.insertText).toBe('nodes:\n  $0');
+    expect(nodesSuggestion.insertText).toContain('nodes:\n  - name: ${1}');
     expect(nodesSuggestion.insertTextRules).toBe(4);
 
     const linksResult = provider.provideCompletionItems(
@@ -506,7 +573,7 @@ describe('App', () => {
       { lineNumber: 1, column: 3 }
     );
     const linksSuggestion = linksResult.suggestions.find((item) => item.label === 'links');
-    expect(linksSuggestion.insertText).toBe('links:\n  - from: $0');
+    expect(linksSuggestion.insertText).toContain('links:\n  - from: ${1}');
     expect(linksSuggestion.command).toEqual({
       id: 'editor.action.triggerSuggest',
       title: 'Trigger Link Suggestions',
@@ -519,7 +586,7 @@ describe('App', () => {
     const indentedRootLinksSuggestion = indentedRootLinksResult.suggestions.find(
       (item) => item.label === 'links'
     );
-    expect(indentedRootLinksSuggestion.insertText).toBe('links:\n  - from: $0');
+    expect(indentedRootLinksSuggestion.insertText).toContain('links:\n  - from: ${1}');
   });
 });
 
@@ -576,6 +643,37 @@ describe('helpers', () => {
     expect(getYamlAutocompleteSuggestions(context)).toEqual(['edges']);
   });
 
+  it('getYamlAutocompleteSuggestions prioritizes next required link key and suppresses used keys', () => {
+    const context = { kind: 'key', section: 'links', prefix: '' };
+    const suggestions = getYamlAutocompleteSuggestions(context, {
+      state: 'link.key',
+      objectKeys: ['from'],
+    });
+    expect(suggestions[0]).toBe('to');
+    expect(suggestions).not.toContain('from');
+  });
+
+  it('getYamlAutocompleteSuggestions suggests endpoint values from graph entities', () => {
+    const entities = {
+      nodeNames: ['A', 'B'],
+      portsByNode: new Map([
+        ['A', new Set(['eth0', 'eth1'])],
+        ['B', new Set(['eth2'])],
+      ]),
+    };
+    const nodeOnly = getYamlAutocompleteSuggestions(
+      { kind: 'endpointValue', section: 'links', endpoint: 'from', prefix: 'A' },
+      { state: 'link.endpoint.value', entities }
+    );
+    expect(nodeOnly).toContain('A');
+
+    const withPort = getYamlAutocompleteSuggestions(
+      { kind: 'endpointValue', section: 'links', endpoint: 'to', prefix: 'A:et' },
+      { state: 'link.endpoint.value', entities }
+    );
+    expect(withPort).toContain('A:eth0');
+  });
+
   it('getYamlAutocompleteContext returns node key context under nodes section', () => {
     const yaml = 'nodes:\n  - na';
     const context = getYamlAutocompleteContext(yaml, 2, 7);
@@ -597,10 +695,38 @@ describe('helpers', () => {
     expect(getYamlAutocompleteSuggestions(context)).toEqual(['links']);
   });
 
+  it('computeIndentBackspaceDeleteCount removes up to previous indent boundary on empty line', () => {
+    expect(computeIndentBackspaceDeleteCount('    ', 5)).toBe(2);
+    expect(computeIndentBackspaceDeleteCount('  ', 3)).toBe(2);
+    expect(computeIndentBackspaceDeleteCount('   ', 4)).toBe(1);
+    expect(computeIndentBackspaceDeleteCount('  text', 3)).toBe(0);
+  });
+
   it('getYamlAutocompleteContext returns node type value context', () => {
     const yaml = 'nodes:\n  - name: A\n    type: ro';
     const context = getYamlAutocompleteContext(yaml, 3, 13);
     expect(context).toEqual({ kind: 'nodeTypeValue', section: 'nodes', prefix: 'ro' });
     expect(getYamlAutocompleteSuggestions(context)).toContain('router');
+  });
+
+  it('getYamlAutocompleteContext returns endpoint value context inside links', () => {
+    const yaml = 'links:\n  - from: A:e';
+    const context = getYamlAutocompleteContext(yaml, 2, 14);
+    expect(context).toEqual({ kind: 'endpointValue', section: 'links', endpoint: 'from', prefix: 'A:e' });
+  });
+
+  it('extractNodeTypesFromSchema returns enum-based node types when available', () => {
+    const schema = {
+      $defs: {
+        MinimalNodeIn: {
+          properties: {
+            type: {
+              anyOf: [{ type: 'string', enum: ['router', 'switch'] }, { type: 'null' }],
+            },
+          },
+        },
+      },
+    };
+    expect(extractNodeTypesFromSchema(schema)).toEqual(['router', 'switch']);
   });
 });
