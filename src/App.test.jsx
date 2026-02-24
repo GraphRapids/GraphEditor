@@ -86,10 +86,14 @@ vi.mock('@monaco-editor/react', async () => {
         getSelection: () => editorModelState.selection,
         getModel: () => ({
           getValue: () => (editorModelState.value !== undefined ? editorModelState.value : value),
-          getLineContent: (_lineNumber) =>
-            editorModelState.lineContent !== undefined
-              ? editorModelState.lineContent
-              : (editorModelState.value !== undefined ? editorModelState.value : value).split('\n')[0] || '',
+          getLineContent: (lineNumber) => {
+            if (editorModelState.lineContent !== undefined) {
+              return editorModelState.lineContent;
+            }
+            const lines = (editorModelState.value !== undefined ? editorModelState.value : value).split('\n');
+            return lines[Math.max(0, lineNumber - 1)] || '';
+          },
+          getLineCount: () => (editorModelState.value !== undefined ? editorModelState.value : value).split('\n').length,
         }),
         executeEdits: (...args) => executeEditsSpy(...args),
         trigger: (...args) => editorTriggerSpy(...args),
@@ -498,6 +502,111 @@ describe('App', () => {
     expect(executeEditsSpy).toHaveBeenCalled();
   });
 
+  it('keeps cursor on root-boundary empty line and suggests root sections on Backspace', async () => {
+    installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
+    render(<App />);
+    await flushDebounce();
+
+    editorModelState.value = 'nodes:\n  - name: A\n    ';
+    editorModelState.lineContent = undefined;
+    editorModelState.selection = {
+      isEmpty: () => true,
+      getPosition: () => ({ lineNumber: 3, column: 5 }),
+    };
+    const preventDefault = vi.fn();
+
+    await act(async () => {
+      editorKeyDownState.handler({ keyCode: 1, preventDefault });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(executeEditsSpy).toHaveBeenCalledWith('root-boundary-backspace', [
+      expect.objectContaining({
+        text: '',
+      }),
+    ]);
+    expect(editorTriggerSpy).toHaveBeenCalledWith('backspace-root-boundary', 'editor.action.triggerSuggest', {});
+  });
+
+  it('inserts `to:` on Enter after `from` value when no port suffix is selected', async () => {
+    installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
+    render(<App />);
+    await flushDebounce();
+
+    editorModelState.value = 'links:\n  - from: A';
+    editorModelState.lineContent = '  - from: A';
+    editorModelState.selection = {
+      isEmpty: () => true,
+      getPosition: () => ({ lineNumber: 2, column: 12 }),
+    };
+    const preventDefault = vi.fn();
+
+    await act(async () => {
+      editorKeyDownState.handler({ keyCode: 3, preventDefault });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(executeEditsSpy).toHaveBeenCalledWith('link-from-next-to', [
+      expect.objectContaining({
+        text: '\n    to: ',
+      }),
+    ]);
+  });
+
+  it('inserts `to:` on Enter after `from` value with node:port', async () => {
+    installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
+    render(<App />);
+    await flushDebounce();
+
+    editorModelState.value = 'links:\n  - from: A:eth0';
+    editorModelState.lineContent = '  - from: A:eth0';
+    editorModelState.selection = {
+      isEmpty: () => true,
+      getPosition: () => ({ lineNumber: 2, column: 17 }),
+    };
+    const preventDefault = vi.fn();
+
+    await act(async () => {
+      editorKeyDownState.handler({ keyCode: 3, preventDefault });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(executeEditsSpy).toHaveBeenCalledWith('link-from-next-to', [
+      expect.objectContaining({
+        text: '\n    to: ',
+      }),
+    ]);
+  });
+
+  it('goes to next link-step line on Enter after `to` value when port suffix is not selected', async () => {
+    installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
+    render(<App />);
+    await flushDebounce();
+
+    editorModelState.value = 'links:\n  - from: A\n    to: B';
+    editorModelState.lineContent = '    to: B';
+    editorModelState.selection = {
+      isEmpty: () => true,
+      getPosition: () => ({ lineNumber: 3, column: 10 }),
+    };
+    const preventDefault = vi.fn();
+
+    await act(async () => {
+      editorKeyDownState.handler({ keyCode: 3, preventDefault });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(executeEditsSpy).toHaveBeenCalledWith('link-to-next-step', [
+      expect.objectContaining({
+        text: '\n  ',
+      }),
+    ]);
+  });
+
   it('triggers suggest on empty document focus', async () => {
     installFetchMock(async () => svgResponse('<svg width="100" height="50"><rect width="100" height="50"/></svg>'));
     render(<App />);
@@ -560,7 +669,7 @@ describe('App', () => {
     );
     const routerSuggestion = typeResult.suggestions.find((item) => item.label === 'router');
     expect(routerSuggestion).toBeTruthy();
-    expect(routerSuggestion.insertText).toBe('router\n    $0');
+    expect(routerSuggestion.insertText).toBe('router\n$0');
     expect(routerSuggestion.insertTextRules).toBe(4);
     expect(routerSuggestion.command).toEqual({
       id: 'editor.action.triggerSuggest',
@@ -573,7 +682,7 @@ describe('App', () => {
     );
     const directedSuggestion = linkTypeResult.suggestions.find((item) => item.label === 'directed');
     expect(directedSuggestion).toBeTruthy();
-    expect(directedSuggestion.insertText).toBe('directed\n    $0');
+    expect(directedSuggestion.insertText).toBe('directed\n$0');
     expect(directedSuggestion.insertTextRules).toBe(4);
     expect(directedSuggestion.command).toEqual({
       id: 'editor.action.triggerSuggest',
@@ -594,12 +703,51 @@ describe('App', () => {
 
     const endpointWithNodes = provider.provideCompletionItems(
       {
+        getValue: () => 'nodes:\n  - name: A\nlinks:\n  - from: ',
+        getLineContent: () => '  - from: ',
+      },
+      { lineNumber: 4, column: 11 }
+    );
+    const fromNodeSuggestion = endpointWithNodes.suggestions.find((item) => item.label === 'A');
+    expect(fromNodeSuggestion).toBeTruthy();
+    expect(fromNodeSuggestion.command).toEqual({
+      id: 'editor.action.triggerSuggest',
+      title: 'Trigger Endpoint Suggestions',
+    });
+
+    const endpointFromSuffix = provider.provideCompletionItems(
+      {
         getValue: () => 'nodes:\n  - name: A\nlinks:\n  - from: A',
         getLineContent: () => '  - from: A',
       },
       { lineNumber: 4, column: 12 }
     );
-    expect(endpointWithNodes.suggestions.some((item) => item.label === 'A')).toBe(true);
+    expect(endpointFromSuffix.suggestions.map((item) => item.label)).toEqual([':']);
+    expect(endpointFromSuffix.suggestions[0].insertText).toBe(':');
+
+    const endpointToWithNodes = provider.provideCompletionItems(
+      {
+        getValue: () => 'nodes:\n  - name: A\nlinks:\n  - from: A\n    to: ',
+        getLineContent: () => '    to: ',
+      },
+      { lineNumber: 5, column: 9 }
+    );
+    const toNodeSuggestion = endpointToWithNodes.suggestions.find((item) => item.label === 'A');
+    expect(toNodeSuggestion).toBeTruthy();
+    expect(toNodeSuggestion.command).toEqual({
+      id: 'editor.action.triggerSuggest',
+      title: 'Trigger Endpoint Suggestions',
+    });
+
+    const endpointToSuffix = provider.provideCompletionItems(
+      {
+        getValue: () => 'nodes:\n  - name: A\nlinks:\n  - from: A\n    to: A',
+        getLineContent: () => '    to: A',
+      },
+      { lineNumber: 5, column: 10 }
+    );
+    expect(endpointToSuffix.suggestions.map((item) => item.label)).toEqual([':']);
+    expect(endpointToSuffix.suggestions[0].insertText).toBe(':');
 
     const rootResult = provider.provideCompletionItems(
       { getValue: () => '', getLineContent: () => '' },
@@ -611,7 +759,13 @@ describe('App', () => {
       { getValue: () => 'nodes:\n  - name: A\n', getLineContent: () => '' },
       { lineNumber: 3, column: 1 }
     );
-    expect(rootAfterNodesResult.suggestions.map((item) => item.label)).toEqual(['links', 'nodes']);
+    expect(rootAfterNodesResult.suggestions.map((item) => item.label)).toEqual(['- links:']);
+
+    const rootBeforeLinksResult = provider.provideCompletionItems(
+      { getValue: () => '\nlinks:\n  - from: A\n    to: B', getLineContent: () => '' },
+      { lineNumber: 1, column: 1 }
+    );
+    expect(rootBeforeLinksResult.suggestions.map((item) => item.label)).toEqual(['- nodes:']);
 
     const nodesResult = provider.provideCompletionItems(
       { getValue: () => 'no', getLineContent: () => 'no' },
@@ -720,6 +874,11 @@ describe('helpers', () => {
     ]);
   });
 
+  it('getYamlAutocompleteSuggestions returns dashed root boundary items excluding existing sections', () => {
+    const context = { kind: 'rootItemKey', section: 'root', prefix: '' };
+    expect(getYamlAutocompleteSuggestions(context, { rootSectionPresence: new Set(['nodes']) })).toEqual(['- links:']);
+  });
+
   it('getYamlAutocompleteSuggestions prioritizes next required link key and suppresses used keys', () => {
     const context = { kind: 'key', section: 'links', prefix: '' };
     const suggestions = getYamlAutocompleteSuggestions(context, {
@@ -728,7 +887,7 @@ describe('helpers', () => {
     expect(suggestions).toEqual(['to']);
   });
 
-  it('getYamlAutocompleteSuggestions suggests endpoint values from graph entities', () => {
+  it('getYamlAutocompleteSuggestions suggests endpoint values and from-port suffix transition', () => {
     const entities = {
       nodeNames: ['A', 'B'],
       portsByNode: new Map([
@@ -736,17 +895,23 @@ describe('helpers', () => {
         ['B', new Set(['eth2'])],
       ]),
     };
-    const nodeOnly = getYamlAutocompleteSuggestions(
+    const fromSuffix = getYamlAutocompleteSuggestions(
       { kind: 'endpointValue', section: 'links', endpoint: 'from', prefix: 'A' },
       { state: 'link.endpoint.value', entities }
     );
-    expect(nodeOnly).toContain('A');
+    expect(fromSuffix).toEqual([':']);
 
-    const withPort = getYamlAutocompleteSuggestions(
-      { kind: 'endpointValue', section: 'links', endpoint: 'to', prefix: 'A:et' },
+    const toSuffix = getYamlAutocompleteSuggestions(
+      { kind: 'endpointValue', section: 'links', endpoint: 'to', prefix: 'A' },
       { state: 'link.endpoint.value', entities }
     );
-    expect(withPort).toContain('A:eth0');
+    expect(toSuffix).toEqual([':']);
+
+    const freeTextPort = getYamlAutocompleteSuggestions(
+      { kind: 'endpointValue', section: 'links', endpoint: 'from', prefix: 'A:et' },
+      { state: 'link.endpoint.value', entities }
+    );
+    expect(freeTextPort).toEqual([]);
   });
 
   it('getYamlAutocompleteContext returns node key context under nodes section', () => {
@@ -754,6 +919,12 @@ describe('helpers', () => {
     const context = getYamlAutocompleteContext(yaml, 2, 7);
     expect(context).toEqual({ kind: 'itemKey', section: 'nodes', prefix: 'na' });
     expect(getYamlAutocompleteSuggestions(context)).toEqual(['- name']);
+  });
+
+  it('getYamlAutocompleteContext returns root item context on empty line after all content', () => {
+    const yaml = 'nodes:\n  - name: A\n';
+    const context = getYamlAutocompleteContext(yaml, 3, 1);
+    expect(context).toEqual({ kind: 'rootItemKey', section: 'root', prefix: '' });
   });
 
   it('getYamlAutocompleteContext returns link key context under links section', () => {

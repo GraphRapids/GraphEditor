@@ -592,26 +592,21 @@ function buildAutocompleteMetadata(text) {
   return { lines, entities, rootSectionPresence };
 }
 
-function endpointSuggestions(prefix, entities) {
-  const normalizedPrefix = (prefix || '').toLowerCase();
-  if (!normalizedPrefix.includes(':')) {
-    return entities.nodeNames.filter((name) => name.toLowerCase().startsWith(normalizedPrefix));
+function endpointSuggestions(prefix, entities, endpoint) {
+  const rawPrefix = String(prefix || '');
+  const normalizedPrefix = rawPrefix.toLowerCase();
+  const nodeNames = Array.isArray(entities?.nodeNames) ? entities.nodeNames : [];
+  if (normalizedPrefix.includes(':')) {
+    return [];
   }
-  const [nodePart, portPartRaw] = normalizedPrefix.split(':');
-  const portPart = portPartRaw || '';
-  const matches = [];
-  for (const nodeName of entities.nodeNames) {
-    if (!nodeName.toLowerCase().startsWith(nodePart)) {
-      continue;
-    }
-    const ports = entities.portsByNode.get(nodeName) || new Set();
-    for (const port of ports) {
-      if (port.toLowerCase().startsWith(portPart)) {
-        matches.push(`${nodeName}:${port}`);
-      }
-    }
+
+  const hasExactNodeMatch =
+    normalizedPrefix.length > 0 && nodeNames.some((name) => String(name).toLowerCase() === normalizedPrefix);
+  if ((endpoint === 'from' || endpoint === 'to') && hasExactNodeMatch) {
+    return [':'];
   }
-  return matches;
+
+  return nodeNames.filter((name) => String(name).toLowerCase().startsWith(normalizedPrefix));
 }
 
 function extractKeyFromLine(line) {
@@ -738,6 +733,7 @@ function collectOrderedKeys(sectionSpec) {
 function normalizeSectionPrefix(prefix) {
   return String(prefix || '')
     .replace(/^-/, '')
+    .replace(/:$/, '')
     .trim()
     .toLowerCase();
 }
@@ -844,6 +840,35 @@ function previousNonEmptyLine(lines, startIndex) {
   return null;
 }
 
+function rootContentBounds(lines) {
+  let firstNonEmpty = -1;
+  let lastNonEmpty = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!(lines[i] || '').trim()) {
+      continue;
+    }
+    if (firstNonEmpty < 0) {
+      firstNonEmpty = i;
+    }
+    lastNonEmpty = i;
+  }
+  return { firstNonEmpty, lastNonEmpty };
+}
+
+function isRootBoundaryEmptyLine(lines, lineIndex) {
+  if (lineIndex < 0 || lineIndex >= lines.length) {
+    return false;
+  }
+  if ((lines[lineIndex] || '').trim().length > 0) {
+    return false;
+  }
+  const { firstNonEmpty, lastNonEmpty } = rootContentBounds(lines);
+  if (firstNonEmpty < 0 || lastNonEmpty < 0) {
+    return false;
+  }
+  return lineIndex < firstNonEmpty || lineIndex > lastNonEmpty;
+}
+
 function keyFromLine(line) {
   const match = String(line || '').trim().match(/^(?:-\s*)?([a-zA-Z_][a-zA-Z0-9_-]*)\s*:/);
   return match ? match[1] : null;
@@ -877,6 +902,9 @@ function isContinuationLineAfterTerminalKey(lines, lineNumber, section, itemInde
 
 export function getYamlAutocompleteContext(text, lineNumber, column) {
   const lines = text.split('\n');
+  while (lineNumber > lines.length) {
+    lines.push('');
+  }
   const safeLineNumber = Math.max(1, Math.min(lineNumber, lines.length));
   const line = lines[safeLineNumber - 1] || '';
   const safeColumn = Math.max(1, Math.min(column, line.length + 1));
@@ -886,6 +914,9 @@ export function getYamlAutocompleteContext(text, lineNumber, column) {
   const sectionInfo = inferYamlSection(lines, safeLineNumber - 1, indent);
   const section = sectionInfo.section;
   const itemIndent = sectionInfo.sectionIndent + INDENT_SIZE;
+  if (section === 'root' && isRootBoundaryEmptyLine(lines, safeLineNumber - 1)) {
+    return { kind: 'rootItemKey', section: 'root', prefix: '' };
+  }
   if (section !== 'root' && isContinuationLineAfterTerminalKey(lines, safeLineNumber, section, itemIndent)) {
     return { kind: 'itemKey', section, prefix: '' };
   }
@@ -1036,7 +1067,7 @@ export function getYamlAutocompleteSuggestions(context, meta = {}) {
   }
 
   if (context.kind === 'endpointValue') {
-    return endpointSuggestions(context.prefix, meta.entities || { nodeNames: [], portsByNode: new Map() });
+    return endpointSuggestions(context.prefix, meta.entities || { nodeNames: [], portsByNode: new Map() }, context.endpoint);
   }
 
   if (context.kind === 'rootKey') {
@@ -1053,6 +1084,14 @@ export function getYamlAutocompleteSuggestions(context, meta = {}) {
       }
       return 0;
     });
+  }
+
+  if (context.kind === 'rootItemKey') {
+    const rootSections = (spec.rootSections || DEFAULT_AUTOCOMPLETE_SPEC.rootSections).map((item) => String(item || ''));
+    const present = meta.rootSectionPresence || new Set();
+    return rootSections
+      .filter((item) => item && !present.has(item))
+      .map((item) => `- ${item}:`);
   }
 
   if (context.kind === 'itemKey') {
@@ -1439,6 +1478,14 @@ export default function App() {
   }, [documentState]);
 
   useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && window.__graphEditorE2E) {
+        delete window.__graphEditorE2E;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!editorRef.current || yamlText.trim().length > 0) {
       return;
     }
@@ -1757,6 +1804,30 @@ export default function App() {
     monacoRef.current = monaco;
     editorModelRef.current = editor.getModel?.() || null;
 
+    if (typeof window !== 'undefined' && window.__GRAPH_EDITOR_E2E__) {
+      window.__graphEditorE2E = {
+        setValue(nextValue) {
+          editor.getModel?.()?.setValue(String(nextValue ?? ''));
+        },
+        getValue() {
+          return editor.getModel?.()?.getValue?.() || '';
+        },
+        setPosition(lineNumber, column) {
+          editor.setPosition?.({ lineNumber, column });
+          editor.focus?.();
+        },
+        getPosition() {
+          return editor.getPosition?.() || null;
+        },
+        triggerSuggest() {
+          editor.trigger('e2e', 'editor.action.triggerSuggest', {});
+        },
+        focus() {
+          editor.focus?.();
+        },
+      };
+    }
+
     if (completionProviderRef.current) {
       completionProviderRef.current.dispose();
     }
@@ -1847,12 +1918,21 @@ export default function App() {
           const trimmedItem = normalizedItem.trim();
           const isItemStartLabel = /^\-\s+/.test(trimmedItem);
           const suggestionKey = trimmedItem.replace(/^\-\s+/, '').trim();
+          const normalizedSuggestionKey = suggestionKey.replace(/:\s*$/, '');
           if (context.kind === 'rootKey') {
             const nextKey =
               item === 'nodes'
                 ? autocompleteSpecRef.current.node.entryStartKey
                 : autocompleteSpecRef.current.link.entryStartKey;
             insertText = `${item}:\n${' '.repeat(INDENT_SIZE)}- ${nextKey}: `;
+          } else if (context.kind === 'rootItemKey') {
+            const rootKey = normalizedSuggestionKey;
+            const nextKey =
+              rootKey === 'nodes'
+                ? autocompleteSpecRef.current.node.entryStartKey
+                : autocompleteSpecRef.current.link.entryStartKey;
+            itemRange = new monaco.Range(position.lineNumber, 1, position.lineNumber, position.column);
+            insertText = `${rootKey}:\n${' '.repeat(INDENT_SIZE)}- ${nextKey}: `;
           } else if (context.kind === 'itemKey') {
             const sectionInfo = inferYamlSection(meta.lines, position.lineNumber - 1, lineIndent(currentLine));
             const desiredIndent = sectionInfo.sectionIndent + INDENT_SIZE;
@@ -1864,10 +1944,13 @@ export default function App() {
             }
           } else if (context.kind === 'key') {
             insertText = `${item}: `;
+          } else if (context.kind === 'endpointValue' && item === ':') {
+            itemRange = new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column);
+            insertText = ':';
           } else {
             const isTypeValueContext = context.kind === 'nodeTypeValue' || context.kind === 'linkTypeValue';
             if (isTypeValueContext) {
-              insertText = `${item}\n${' '.repeat(currentIndent)}$0`;
+              insertText = `${item}\n$0`;
               insertTextRule = insertTextRules.InsertAsSnippet;
             } else {
               insertText = item;
@@ -1878,9 +1961,13 @@ export default function App() {
             context.kind === 'nodeTypeValue' || context.kind === 'linkTypeValue' || context.kind === 'endpointValue';
           const isKeyLikeContext = context.kind === 'key' || context.kind === 'itemKey';
           const isTypeValueContext = context.kind === 'nodeTypeValue' || context.kind === 'linkTypeValue';
-          const keyToken = context.kind === 'itemKey' ? suggestionKey : item;
+          const isEndpointValueContext = context.kind === 'endpointValue';
+          const keyToken =
+            context.kind === 'itemKey' || context.kind === 'rootItemKey' ? normalizedSuggestionKey : item;
           const shouldTriggerSuggest =
-            (isKeyLikeContext && ['type', 'from', 'to'].includes(keyToken)) || isTypeValueContext;
+            (isKeyLikeContext && ['type', 'from', 'to'].includes(keyToken)) ||
+            isTypeValueContext ||
+            (isEndpointValueContext && item !== ':');
 
           return {
             label: item,
@@ -1933,21 +2020,74 @@ export default function App() {
     }
 
     tabSuggestListenerRef.current = editor.onKeyDown((event) => {
-      if (event.keyCode === monaco.KeyCode.Tab) {
+      const isTabKey = event.keyCode === monaco.KeyCode.Tab || event.browserEvent?.key === 'Tab';
+      if (isTabKey) {
         window.setTimeout(() => {
           triggerSuggestIfAvailable('keyboard');
         }, 0);
         return;
       }
 
-      if (monaco.KeyCode?.Enter && event.keyCode === monaco.KeyCode.Enter) {
+      const isEnterKey =
+        (monaco.KeyCode?.Enter && event.keyCode === monaco.KeyCode.Enter) || event.browserEvent?.key === 'Enter';
+      if (isEnterKey) {
+        const selection = editor.getSelection?.();
+        const model = editor.getModel?.();
+        const position =
+          selection?.getPosition?.() || selection?.getStartPosition?.() || editor.getPosition?.();
+        if (selection?.isEmpty?.() && model && position) {
+          const text = model.getValue();
+          const context = getYamlAutocompleteContext(text, position.lineNumber, position.column);
+          const endpointValue = String(context.prefix || '').trim();
+          const valueHasColon = endpointValue.includes(':');
+          const portPart = valueHasColon ? endpointValue.split(':').slice(1).join(':').trim() : '';
+          const canAdvanceEndpoint = endpointValue.length > 0 && (!valueHasColon || portPart.length > 0);
+          if (
+            context.kind === 'endpointValue' &&
+            context.section === 'links' &&
+            (context.endpoint === 'from' || context.endpoint === 'to') &&
+            canAdvanceEndpoint
+          ) {
+            const currentLine = model.getLineContent(position.lineNumber) || '';
+            const baseIndent = lineIndent(currentLine);
+            const nextIndent =
+              context.endpoint === 'from'
+                ? /^\s*-\s*/.test(currentLine)
+                  ? baseIndent + INDENT_SIZE
+                  : baseIndent
+                : Math.max(0, baseIndent - INDENT_SIZE);
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            if (context.endpoint === 'from') {
+              editor.executeEdits?.('link-from-next-to', [
+                {
+                  range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+                  text: `\n${' '.repeat(nextIndent)}to: `,
+                },
+              ]);
+            } else {
+              editor.executeEdits?.('link-to-next-step', [
+                {
+                  range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+                  text: `\n${' '.repeat(nextIndent)}`,
+                },
+              ]);
+            }
+            window.setTimeout(() => {
+              triggerSuggestIfAvailable('enter-next-to');
+            }, 0);
+            return;
+          }
+        }
         window.setTimeout(() => {
           triggerSuggestIfAvailable('enter');
         }, 0);
         return;
       }
 
-      if (event.keyCode !== monaco.KeyCode.Backspace) {
+      const isBackspaceKey =
+        event.keyCode === monaco.KeyCode.Backspace || event.browserEvent?.key === 'Backspace';
+      if (!isBackspaceKey) {
         return;
       }
 
@@ -1967,12 +2107,38 @@ export default function App() {
       }
 
       const lineContent = model.getLineContent(position.lineNumber);
+      const modelLineCount =
+        typeof model.getLineCount === 'function'
+          ? Math.max(1, model.getLineCount())
+          : Math.max(1, model.getValue().split('\n').length);
+      const modelLines = [];
+      for (let i = 1; i <= modelLineCount; i += 1) {
+        modelLines.push(typeof model.getLineContent === 'function' ? model.getLineContent(i) : '');
+      }
+      const currentLineIndex = Math.max(0, Math.min(position.lineNumber - 1, modelLines.length - 1));
+      if (isRootBoundaryEmptyLine(modelLines, currentLineIndex)) {
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        if (position.column > 1) {
+          editor.executeEdits?.('root-boundary-backspace', [
+            {
+              range: new monaco.Range(position.lineNumber, 1, position.lineNumber, position.column),
+              text: '',
+            },
+          ]);
+        }
+        window.setTimeout(() => {
+          triggerSuggestIfAvailable('backspace-root-boundary');
+        }, 0);
+        return;
+      }
       const deleteCount = computeIndentBackspaceDeleteCount(lineContent, position.column, INDENT_SIZE);
       if (deleteCount <= 0) {
         return;
       }
 
       event.preventDefault?.();
+      event.stopPropagation?.();
       editor.executeEdits?.('indent-backspace', [
         {
           range: new monaco.Range(

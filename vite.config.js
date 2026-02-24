@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv } from 'vite';
+import { configDefaults } from 'vitest/config';
 
 function parsePort(value, fallback) {
   const parsed = Number.parseInt(String(value || ''), 10);
@@ -28,6 +29,7 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       globals: true,
       setupFiles: './src/test/setup.js',
+      exclude: [...configDefaults.exclude, 'e2e/**', 'playwright.config.ts'],
       coverage: {
         provider: 'v8',
         reporter: ['text', 'lcov'],
