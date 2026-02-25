@@ -14,6 +14,9 @@ export default defineConfig(({ mode }) => {
   const graphApiPort = parsePort(env.GRAPHAPI_PORT, 8000);
 
   return {
+    resolve: {
+      dedupe: ['react', 'react-dom'],
+    },
     server: {
       host: editorHost,
       port: editorPort,
@@ -29,6 +32,11 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       globals: true,
       setupFiles: './src/test/setup.js',
+      server: {
+        deps: {
+          inline: ['@graphrapids/graph-yaml-editor'],
+        },
+      },
       exclude: [...configDefaults.exclude, 'e2e/**', 'playwright.config.ts'],
       coverage: {
         provider: 'v8',

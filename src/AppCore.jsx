@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import YAML from 'js-yaml';
 import Ajv2020 from 'ajv/dist/2020';
 import { UncontrolledReactSVGPanZoom, fitToViewer as fitValueToViewer } from 'react-svg-pan-zoom';
-import GraphYamlEditor from './GraphYamlEditor';
+import GraphYamlEditor from '@graphrapids/graph-yaml-editor';
 
 const API_BASE = '/api';
 const MIN_DEBOUNCE_MS = 170;
