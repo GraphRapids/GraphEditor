@@ -152,6 +152,8 @@ External dependency:
   - `file:../GraphYamlEditor/graphrapids-graph-yaml-editor-0.1.0.tgz`
 - `@graphrapids/graph-view` from sibling repo tarball:
   - `file:../GraphView/graphrapids-graph-view-0.1.0.tgz`
+- `@graphrapids/graph-autocomplete-core` from sibling repo tarball:
+  - `file:../GraphAutocompleteCore/graphrapids-graph-autocomplete-core-0.1.0.tgz`
 
 ## Troubleshooting
 

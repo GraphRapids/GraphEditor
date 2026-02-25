@@ -12,6 +12,7 @@ GraphEditor is the GraphRapids web application for authoring graph YAML and prev
 ## System Snapshot
 - Frontend: React + Vite.
 - Editor: Monaco via `@graphrapids/graph-yaml-editor`.
+- Autocomplete core: `@graphrapids/graph-autocomplete-core`.
 - Viewer: `@graphrapids/graph-view`.
 - Validation: YAML parse + JSON schema validation (AJV).
 - Render backend: GraphAPI (`/api/render/svg`) behind Vite proxy.
@@ -64,7 +65,8 @@ When behavior changes:
 - Build: `npm run build`
 
 ## Open Decisions / TODO
-- [ ] Extract autocomplete engine from `AppCore.jsx` into dedicated module/package.
+- [x] Move autocomplete behavior callbacks consumed by GraphYamlEditor to `@graphrapids/graph-autocomplete-core`.
+- [ ] Remove remaining duplicate autocomplete helper logic still present in `src/AppCore.jsx`.
 - [ ] Add fixture-driven scenario tests from behavior template rows.
 - [ ] Evaluate richer schema-location mapping for diagnostics.
 
