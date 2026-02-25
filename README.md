@@ -176,6 +176,11 @@ Change `GRAPHEDITOR_PORT` or stop the process currently bound to `${GRAPHEDITOR_
 - `RELEASE.md`
 - `THIRD_PARTY_NOTICES.md`
 
+## Persistent Context
+
+- `PROJECT_CONTEXT.md` holds stable architecture and behavior decisions.
+- `SESSION_NOTES.md` is the running implementation handoff log between sessions.
+
 ## License
 
 Apache-2.0 (`LICENSE`).
