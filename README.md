@@ -10,10 +10,11 @@ GraphEditor is a React web app for authoring graph YAML and previewing rendered 
 ## Current Capabilities
 
 - Monaco YAML editing via reusable `@graphrapids/graph-yaml-editor`
+- SVG preview pane via reusable `@graphrapids/graph-view`
 - Step-by-step, schema-aware autocomplete for graph authoring
 - YAML syntax + JSON schema validation with Monaco markers
 - Debounced/abortable render pipeline with stale-response protection
-- Interactive SVG preview (`react-svg-pan-zoom`)
+- Interactive SVG pan/zoom preview
 - Light/dark mode and SVG download
 
 ## Requirements
@@ -34,7 +35,17 @@ npm run build
 npm pack
 ```
 
-### 2. Install and run GraphEditor
+### 2. Build and pack GraphView (sibling repo)
+
+From `../GraphView`:
+
+```bash
+npm install
+npm run build
+npm pack
+```
+
+### 3. Install and run GraphEditor
 
 ```bash
 npm install
@@ -139,6 +150,8 @@ External dependency:
 
 - `@graphrapids/graph-yaml-editor` from sibling repo tarball:
   - `file:../GraphYamlEditor/graphrapids-graph-yaml-editor-0.1.0.tgz`
+- `@graphrapids/graph-view` from sibling repo tarball:
+  - `file:../GraphView/graphrapids-graph-view-0.1.0.tgz`
 
 ## Troubleshooting
 

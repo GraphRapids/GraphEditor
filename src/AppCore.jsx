@@ -2,8 +2,8 @@ import React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import YAML from 'js-yaml';
 import Ajv2020 from 'ajv/dist/2020';
-import { UncontrolledReactSVGPanZoom, fitToViewer as fitValueToViewer } from 'react-svg-pan-zoom';
 import GraphYamlEditor from '@graphrapids/graph-yaml-editor';
+import GraphView from '@graphrapids/graph-view';
 
 const API_BASE = '/api';
 const MIN_DEBOUNCE_MS = 170;
@@ -1432,15 +1432,10 @@ export default function App() {
   const [status, setStatus] = useState('Loading schema...');
   const [renderError, setRenderError] = useState('');
   const [theme, setTheme] = useState('light');
-  const [isManualView, setIsManualView] = useState(false);
-  const [viewerSize, setViewerSize] = useState({ width: 640, height: 420 });
 
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
   const requestIdRef = useRef(0);
-  const previewShellRef = useRef(null);
-  const viewerRef = useRef(null);
-  const suppressViewEventsRef = useRef(false);
 
   const nodeTypeSuggestionsRef = useRef(NODE_TYPE_SUGGESTIONS);
   const linkTypeSuggestionsRef = useRef(LINK_TYPE_SUGGESTIONS);
@@ -1450,13 +1445,8 @@ export default function App() {
   const documentStateRef = useRef(null);
   const renderCacheRef = useRef(new Map());
 
-  const [svgObjectUrl, setSvgObjectUrl] = useState('');
-
   const debounceMs = useMemo(() => computeDebounceMs(yamlText), [yamlText]);
   const documentState = useMemo(() => analyzeYamlDocument(yamlText, validateFn), [yamlText, validateFn]);
-  const svgDoc = useMemo(() => parseSvgDocument(svgText), [svgText]);
-  const themedSvgText = useMemo(() => applySvgColorScheme(svgText, theme), [svgText, theme]);
-  const canDownload = useMemo(() => svgText.trim().length > 0, [svgText]);
 
   useEffect(() => {
     documentStateRef.current = documentState;
@@ -1598,64 +1588,6 @@ export default function App() {
   }, [schema, schemaError, validateFn, documentState, debounceMs]);
 
   useEffect(() => {
-    const shell = previewShellRef.current;
-    if (!shell) {
-      return;
-    }
-
-    const updateSize = () => {
-      setViewerSize({
-        width: Math.max(200, Math.floor(shell.clientWidth)),
-        height: Math.max(200, Math.floor(shell.clientHeight)),
-      });
-    };
-
-    updateSize();
-    const resizeObserver = new ResizeObserver(updateSize);
-    resizeObserver.observe(shell);
-    return () => resizeObserver.disconnect();
-  }, []);
-
-  function applyFit() {
-    const viewer = viewerRef.current;
-    if (!viewer || !svgText) {
-      return;
-    }
-
-    suppressViewEventsRef.current = true;
-    try {
-      viewer.fitToViewer('center', 'center');
-    } finally {
-      window.setTimeout(() => {
-        suppressViewEventsRef.current = false;
-      }, 0);
-    }
-  }
-
-  useEffect(() => {
-    if (!svgText || isManualView) {
-      return;
-    }
-    const id = requestAnimationFrame(() => applyFit());
-    return () => cancelAnimationFrame(id);
-  }, [svgText, svgDoc.width, svgDoc.height, viewerSize.width, viewerSize.height, isManualView]);
-
-  useEffect(() => {
-    if (!themedSvgText) {
-      setSvgObjectUrl('');
-      return;
-    }
-
-    const blob = new Blob([themedSvgText], { type: 'image/svg+xml;charset=utf-8' });
-    const objectUrl = URL.createObjectURL(blob);
-    setSvgObjectUrl(objectUrl);
-
-    return () => {
-      URL.revokeObjectURL(objectUrl);
-    };
-  }, [themedSvgText]);
-
-  useEffect(() => {
     return () => {
       if (abortRef.current) {
         abortRef.current.abort();
@@ -1665,38 +1597,6 @@ export default function App() {
       }
     };
   }, []);
-
-  function onUserPanZoom(nextValue) {
-    if (suppressViewEventsRef.current) {
-      return;
-    }
-
-    if (!nextValue || typeof nextValue !== 'object') {
-      setIsManualView(true);
-      return;
-    }
-
-    const fitValue = fitValueToViewer(nextValue, 'center', 'center');
-    const nearFit =
-      Math.abs(nextValue.a - fitValue.a) < 0.0001 &&
-      Math.abs(nextValue.e - fitValue.e) < 1 &&
-      Math.abs(nextValue.f - fitValue.f) < 1;
-    setIsManualView(!nearFit);
-  }
-
-  function downloadSvg() {
-    if (!canDownload) {
-      return;
-    }
-
-    const blob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'graph.svg';
-    link.click();
-    URL.revokeObjectURL(url);
-  }
 
   const errors = useMemo(() => {
     if (schemaError) {
@@ -1743,64 +1643,13 @@ export default function App() {
       </section>
 
       <section className="pane pane-right">
-        <div className="pane-header row">
-          <div>
-            <h2>SVG Preview</h2>
-            <p>{status}</p>
-          </div>
-          <div className="controls">
-            <button type="button" onClick={downloadSvg} disabled={!canDownload}>
-              Download SVG
-            </button>
-            <button
-              type="button"
-              className="mode-btn"
-              onClick={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
-            >
-              {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
-            </button>
-          </div>
-        </div>
-
-        <div className="errors" role="status">
-          {errors.map((err, idx) => (
-            <div key={`${idx}-${err}`} className="error-item">
-              {err}
-            </div>
-          ))}
-        </div>
-
-        <div className="preview-shell" ref={previewShellRef}>
-          {svgText ? (
-            <UncontrolledReactSVGPanZoom
-              ref={viewerRef}
-              width={viewerSize.width}
-              height={viewerSize.height}
-              defaultTool="auto"
-              detectAutoPan={false}
-              detectWheel
-              background="transparent"
-              SVGBackground="transparent"
-              toolbarProps={{ position: 'right', SVGAlignX: 'center', SVGAlignY: 'center' }}
-              miniatureProps={{ position: 'none' }}
-              onPan={onUserPanZoom}
-              onZoom={onUserPanZoom}
-              scaleFactorOnWheel={1.06}
-            >
-              <svg width={svgDoc.width} height={svgDoc.height} viewBox={`0 0 ${svgDoc.width} ${svgDoc.height}`}>
-                {/* Keep SVG isolated via blob URL instead of direct HTML injection. */}
-                <image
-                  href={svgObjectUrl || ''}
-                  width={svgDoc.width}
-                  height={svgDoc.height}
-                  preserveAspectRatio="xMidYMid meet"
-                />
-              </svg>
-            </UncontrolledReactSVGPanZoom>
-          ) : (
-            <div className="preview-empty">Rendered SVG will appear here.</div>
-          )}
-        </div>
+        <GraphView
+          svgText={svgText}
+          status={status}
+          errors={errors}
+          theme={theme}
+          onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
+        />
       </section>
     </main>
   );

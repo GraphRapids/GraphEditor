@@ -34,7 +34,7 @@ export default defineConfig(({ mode }) => {
       setupFiles: './src/test/setup.js',
       server: {
         deps: {
-          inline: ['@graphrapids/graph-yaml-editor'],
+          inline: ['@graphrapids/graph-yaml-editor', '@graphrapids/graph-view'],
         },
       },
       exclude: [...configDefaults.exclude, 'e2e/**', 'playwright.config.ts'],
