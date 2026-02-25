@@ -84,7 +84,7 @@ const LINK_TYPE_SUGGESTIONS = ['directed', 'undirected', 'association', 'depende
 const DEFAULT_AUTOCOMPLETE_SPEC = {
   rootSections: ['nodes', 'links'],
   node: {
-    orderedKeys: ['name', 'type', 'ports', 'nodes'],
+    orderedKeys: ['name', 'type', 'ports', 'nodes', 'links'],
     requiredKeys: ['name'],
     entryStartKey: 'name',
   },

@@ -816,6 +816,28 @@ describe('App', () => {
     const linksSuggestion = linksResult.suggestions.find((item) => item.label === 'links');
     expect(linksSuggestion.insertText).toBe('links:\n  - from: ');
 
+    const nestedNodesKeyResult = provider.provideCompletionItems(
+      {
+        getValue: () => 'nodes:\n  - name: subgraph1\n    no',
+        getLineContent: () => '    no',
+      },
+      { lineNumber: 3, column: 7 }
+    );
+    const nestedNodesSuggestion = nestedNodesKeyResult.suggestions.find((item) => item.label === 'nodes');
+    expect(nestedNodesSuggestion).toBeTruthy();
+    expect(nestedNodesSuggestion.insertText).toBe('nodes:\n      - name: ');
+
+    const nestedLinksKeyResult = provider.provideCompletionItems(
+      {
+        getValue: () => 'nodes:\n  - name: subgraph1\n    li',
+        getLineContent: () => '    li',
+      },
+      { lineNumber: 3, column: 7 }
+    );
+    const nestedLinksSuggestion = nestedLinksKeyResult.suggestions.find((item) => item.label === 'links');
+    expect(nestedLinksSuggestion).toBeTruthy();
+    expect(nestedLinksSuggestion.insertText).toBe('links:\n      - from: ');
+
     const nextNodeAfterTypeResult = provider.provideCompletionItems(
       {
         getValue: () => 'nodes:\n  - name: foobar\n    type: router\n    ',
@@ -840,6 +862,7 @@ describe('App', () => {
       '  type',
       '  ports',
       '  nodes',
+      '  links',
     ]);
     const continueTypeSuggestion = continueNodeAfterNameResult.suggestions.find((item) => item.label === '  type');
     expect(continueTypeSuggestion).toBeTruthy();
@@ -972,7 +995,7 @@ describe('helpers', () => {
     const context = getYamlAutocompleteContext(yaml, 3, 5);
     expect(context).toEqual({ kind: 'itemKey', section: 'nodes', prefix: '' });
     expect(getYamlAutocompleteSuggestions(context, { itemContextKeys: ['name'], canContinueItemContext: true })).toEqual(
-      ['- name', '  type', '  ports', '  nodes']
+      ['- name', '  type', '  ports', '  nodes', '  links']
     );
   });
 
@@ -989,7 +1012,7 @@ describe('helpers', () => {
     const context = { kind: 'itemKey', section: 'nodes', prefix: '' };
     expect(
       getYamlAutocompleteSuggestions(context, { itemContextKeys: ['name', 'ports'], canContinueItemContext: true })
-    ).toEqual(['- name', '  type', '  nodes']);
+    ).toEqual(['- name', '  type', '  nodes', '  links']);
     expect(
       getYamlAutocompleteSuggestions(context, { itemContextKeys: ['name', 'type'], canContinueItemContext: true })
     ).toEqual(['- name']);

@@ -332,7 +332,16 @@ export default function GraphYamlEditor({
               insertText = `${' '.repeat(desiredIndent + indentSize)}${suggestionKey}: `;
             }
           } else if (context.kind === 'key') {
-            insertText = `${item}: `;
+            const normalizedKey = String(item || '').trim();
+            if (normalizedKey === 'nodes' || normalizedKey === 'links') {
+              const nextKey =
+                normalizedKey === 'nodes'
+                  ? autocompleteSpecRef.current.node.entryStartKey
+                  : autocompleteSpecRef.current.link.entryStartKey;
+              insertText = `${normalizedKey}:\n${' '.repeat(currentIndent + indentSize)}- ${nextKey}: `;
+            } else {
+              insertText = `${normalizedKey}: `;
+            }
           } else if (context.kind === 'endpointValue' && item === ':') {
             itemRange = new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column);
             insertText = ':';
