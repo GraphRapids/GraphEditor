@@ -287,8 +287,8 @@ function installFetchMock(renderHandler) {
         },
         sources: [
           {
-            iconsetId: 'default',
-            iconsetVersion: 1,
+            iconSetId: 'default',
+            iconSetVersion: 1,
             checksum: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
           },
         ],
@@ -308,7 +308,7 @@ function installFetchMock(renderHandler) {
             publishedVersion: 1,
             checksum: 'abc',
             runtimeChecksum: 'runtime-checksum-abc',
-            iconsetResolutionChecksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
+            iconSetResolutionChecksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
             updatedAt: '2026-02-26T00:00:00Z',
           },
         ],
@@ -321,7 +321,7 @@ function installFetchMock(renderHandler) {
         graphTypeVersion: 1,
         graphTypeChecksum: 'abc',
         runtimeChecksum: 'runtime-checksum-abc',
-        iconsetResolutionChecksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
+        iconSetResolutionChecksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
         checksum: 'abc',
         nodeTypes: ['router', 'switch'],
         linkTypes: ['directed', 'undirected'],
@@ -394,8 +394,8 @@ describe('App', () => {
           'X-GraphAPI-Graph-Type-Version': '1',
           'X-GraphAPI-Graph-Type-Checksum': '0123456789abcdef',
           'X-GraphAPI-Graph-Type-Runtime-Checksum': 'runtime-checksum-abc',
-          'X-GraphAPI-Iconset-Resolution-Checksum': '111111111111abcdef',
-          'X-GraphAPI-Iconset-Sources': 'default@1',
+          'X-GraphAPI-Icon-Set-Resolution-Checksum': '111111111111abcdef',
+          'X-GraphAPI-Icon-Set-Sources': 'default@1',
           'X-GraphAPI-Theme-Id': 'default',
           'X-GraphAPI-Theme-Version': '2',
           'X-GraphAPI-Theme-Checksum': 'abcdef0123456789',
@@ -417,8 +417,8 @@ describe('App', () => {
     expect(screen.getByTestId('profile-meta').textContent).toContain('Profile: default');
     expect(screen.getByTestId('profile-meta').textContent).toContain('v1');
     expect(screen.getByTestId('profile-meta').textContent).toContain('Theme: default');
-    expect(screen.getByTestId('profile-iconsets').textContent).toContain('Iconsets');
-    expect(screen.getByTestId('profile-iconsets').textContent).toContain('default@1');
+    expect(screen.getByTestId('profile-icon_sets').textContent).toContain('Icon Sets');
+    expect(screen.getByTestId('profile-icon_sets').textContent).toContain('default@1');
 
     expect(countRenderCalls(fetchMock)).toBeGreaterThanOrEqual(1);
   });

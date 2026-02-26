@@ -97,36 +97,36 @@ function normalizeProfileSummary(raw = {}) {
   const profileVersion = toPositiveInt(raw.graphTypeVersion || raw.profileVersion);
   const checksum = String(raw.graphTypeChecksum || raw.profileChecksum || raw.checksum || '').trim();
   const runtimeChecksum = String(raw.runtimeChecksum || '').trim();
-  const iconsetResolutionChecksum = String(raw.iconsetResolutionChecksum || '').trim();
-  const rawSources = Array.isArray(raw.iconsetSources)
-    ? raw.iconsetSources
-    : typeof raw.iconsetSources === 'string'
-      ? String(raw.iconsetSources || '')
+  const iconSetResolutionChecksum = String(raw.iconSetResolutionChecksum || '').trim();
+  const rawSources = Array.isArray(raw.iconSetSources)
+    ? raw.iconSetSources
+    : typeof raw.iconSetSources === 'string'
+      ? String(raw.iconSetSources || '')
           .split(',')
           .map((value) => String(value || '').trim())
           .filter(Boolean)
           .map((token) => {
-            const [iconsetId, versionToken] = token.split('@');
-            const iconsetVersion = toPositiveInt(versionToken);
-            return iconsetId && iconsetVersion
-              ? { iconsetId: String(iconsetId).trim().toLowerCase(), iconsetVersion }
+            const [iconSetId, versionToken] = token.split('@');
+            const iconSetVersion = toPositiveInt(versionToken);
+            return iconSetId && iconSetVersion
+              ? { iconSetId: String(iconSetId).trim().toLowerCase(), iconSetVersion }
               : null;
           })
           .filter(Boolean)
       : [];
-  const iconsetSources = rawSources
+  const iconSetSources = rawSources
     .map((item) => {
       if (!item || typeof item !== 'object') {
         return null;
       }
-      const iconsetId = String(item.iconsetId || '')
+      const iconSetId = String(item.iconSetId || '')
         .trim()
         .toLowerCase();
-      const iconsetVersion = toPositiveInt(item.iconsetVersion);
-      if (!iconsetId || !iconsetVersion) {
+      const iconSetVersion = toPositiveInt(item.iconSetVersion);
+      if (!iconSetId || !iconSetVersion) {
         return null;
       }
-      return { iconsetId, iconsetVersion };
+      return { iconSetId, iconSetVersion };
     })
     .filter(Boolean);
   return {
@@ -134,8 +134,8 @@ function normalizeProfileSummary(raw = {}) {
     profileVersion,
     checksum,
     runtimeChecksum,
-    iconsetResolutionChecksum,
-    iconsetSources,
+    iconSetResolutionChecksum,
+    iconSetSources,
   };
 }
 
@@ -1229,20 +1229,20 @@ function resolveProfileSummaryFromHeaders(headers, fallback = {}) {
   const checksum = String(headers.get('x-graphapi-graph-type-checksum') || '').trim() || fallbackSummary.checksum;
   const runtimeChecksum =
     String(headers.get('x-graphapi-graph-type-runtime-checksum') || '').trim() || fallbackSummary.runtimeChecksum;
-  const iconsetResolutionChecksum =
-    String(headers.get('x-graphapi-iconset-resolution-checksum') || '').trim() ||
-    fallbackSummary.iconsetResolutionChecksum;
-  const iconsetSourcesHeader = String(headers.get('x-graphapi-iconset-sources') || '').trim();
-  const iconsetSources = iconsetSourcesHeader
-    ? normalizeProfileSummary({ iconsetSources: iconsetSourcesHeader }).iconsetSources
-    : fallbackSummary.iconsetSources;
+  const iconSetResolutionChecksum =
+    String(headers.get('x-graphapi-icon-set-resolution-checksum') || '').trim() ||
+    fallbackSummary.iconSetResolutionChecksum;
+  const iconSetSourcesHeader = String(headers.get('x-graphapi-icon-set-sources') || '').trim();
+  const iconSetSources = iconSetSourcesHeader
+    ? normalizeProfileSummary({ iconSetSources: iconSetSourcesHeader }).iconSetSources
+    : fallbackSummary.iconSetSources;
   return {
     profileId,
     profileVersion,
     checksum,
     runtimeChecksum,
-    iconsetResolutionChecksum,
-    iconsetSources,
+    iconSetResolutionChecksum,
+    iconSetSources,
   };
 }
 
@@ -1495,8 +1495,8 @@ export default function App() {
     profileVersion: null,
     checksum: '',
     runtimeChecksum: '',
-    iconsetResolutionChecksum: '',
-    iconsetSources: [],
+    iconSetResolutionChecksum: '',
+    iconSetSources: [],
   });
   const [activeThemeSummary, setActiveThemeSummary] = useState({
     themeId: '',
@@ -1508,8 +1508,8 @@ export default function App() {
     profileVersion: null,
     checksum: '',
     runtimeChecksum: '',
-    iconsetResolutionChecksum: '',
-    iconsetSources: [],
+    iconSetResolutionChecksum: '',
+    iconSetSources: [],
   });
   const [activeRenderThemeSummary, setActiveRenderThemeSummary] = useState({
     themeId: '',
@@ -1635,8 +1635,8 @@ export default function App() {
         profileVersion: null,
         checksum: '',
         runtimeChecksum: '',
-        iconsetResolutionChecksum: '',
-        iconsetSources: [],
+        iconSetResolutionChecksum: '',
+        iconSetSources: [],
       });
       return;
     }
@@ -1670,8 +1670,8 @@ export default function App() {
           profileVersion: null,
           checksum: '',
           runtimeChecksum: '',
-          iconsetResolutionChecksum: '',
-          iconsetSources: [],
+          iconSetResolutionChecksum: '',
+          iconSetSources: [],
         });
         setProfileCatalogWarning(
           `Graph type catalog unavailable for '${activeProfileId}': ${err?.message || 'request failed'}`
@@ -1694,7 +1694,7 @@ export default function App() {
     let cancelled = false;
     const controller = new AbortController();
 
-    async function loadIconsetResolution() {
+    async function loadIconSetResolution() {
       try {
         const url = new URL(
           `${API_BASE}/v1/graph-types/${encodeURIComponent(activeProfileId)}/runtime`,
@@ -1717,8 +1717,8 @@ export default function App() {
         setActiveProfileSummary((current) =>
           normalizeProfileSummary({
             ...current,
-            iconsetResolutionChecksum: body?.checksum || current.iconsetResolutionChecksum,
-            iconsetSources: Array.isArray(body?.sources) ? body.sources : current.iconsetSources,
+            iconSetResolutionChecksum: body?.checksum || current.iconSetResolutionChecksum,
+            iconSetSources: Array.isArray(body?.sources) ? body.sources : current.iconSetSources,
           })
         );
       } catch (err) {
@@ -1728,7 +1728,7 @@ export default function App() {
       }
     }
 
-    loadIconsetResolution();
+    loadIconSetResolution();
     return () => {
       cancelled = true;
       controller.abort();
@@ -1870,10 +1870,10 @@ export default function App() {
         activeProfileSummary.profileId || 'no-profile',
         activeProfileSummary.profileVersion || 'no-version',
         activeProfileSummary.checksum || 'no-checksum',
-        activeProfileSummary.iconsetResolutionChecksum || 'no-iconset-checksum',
-        (activeProfileSummary.iconsetSources || [])
-          .map((item) => `${item.iconsetId}@${item.iconsetVersion}`)
-          .join(',') || 'no-iconset-sources',
+        activeProfileSummary.iconSetResolutionChecksum || 'no-icon-set-checksum',
+        (activeProfileSummary.iconSetSources || [])
+          .map((item) => `${item.iconSetId}@${item.iconSetVersion}`)
+          .join(',') || 'no-icon-set-sources',
         activeThemeSummary.themeId || 'no-theme',
         activeThemeSummary.themeVersion || 'no-theme-version',
         activeThemeSummary.checksum || 'no-theme-checksum',
@@ -1913,8 +1913,8 @@ export default function App() {
             profileStage: PROFILE_STAGE,
             profileVersion: activeProfileSummary.profileVersion,
             checksum: activeProfileSummary.checksum,
-            iconsetResolutionChecksum: activeProfileSummary.iconsetResolutionChecksum,
-            iconsetSources: activeProfileSummary.iconsetSources,
+            iconSetResolutionChecksum: activeProfileSummary.iconSetResolutionChecksum,
+            iconSetSources: activeProfileSummary.iconSetSources,
           }
         : {};
       const themeContext = activeThemeId
@@ -1972,8 +1972,8 @@ export default function App() {
     activeProfileSummary.profileId,
     activeProfileSummary.profileVersion,
     activeProfileSummary.checksum,
-    activeProfileSummary.iconsetResolutionChecksum,
-    activeProfileSummary.iconsetSources,
+    activeProfileSummary.iconSetResolutionChecksum,
+    activeProfileSummary.iconSetSources,
     activeThemeId,
     activeThemeSummary.themeId,
     activeThemeSummary.themeVersion,
@@ -2015,36 +2015,36 @@ export default function App() {
     return notices.join(' | ');
   }, [profileCatalogWarning, profilesError, themesError]);
 
-  const activeIconsetSummary = useMemo(() => {
-    const sources = Array.isArray(activeProfileSummary.iconsetSources)
-      ? activeProfileSummary.iconsetSources
+  const activeIconSetSummary = useMemo(() => {
+    const sources = Array.isArray(activeProfileSummary.iconSetSources)
+      ? activeProfileSummary.iconSetSources
       : [];
     const labels = sources
       .map((item) => {
-        const iconsetId = String(item?.iconsetId || '')
+        const iconSetId = String(item?.iconSetId || '')
           .trim()
           .toLowerCase();
-        const iconsetVersion = toPositiveInt(item?.iconsetVersion);
-        if (!iconsetId || !iconsetVersion) {
+        const iconSetVersion = toPositiveInt(item?.iconSetVersion);
+        if (!iconSetId || !iconSetVersion) {
           return '';
         }
-        return `${iconsetId}@${iconsetVersion}`;
+        return `${iconSetId}@${iconSetVersion}`;
       })
       .filter(Boolean);
 
-    if (!activeProfileSummary.iconsetResolutionChecksum && labels.length === 0) {
+    if (!activeProfileSummary.iconSetResolutionChecksum && labels.length === 0) {
       return '';
     }
 
-    const parts = ['Iconsets'];
+    const parts = ['Icon Sets'];
     if (labels.length) {
       parts.push(labels.join(','));
     }
-    if (activeProfileSummary.iconsetResolutionChecksum) {
-      parts.push(String(activeProfileSummary.iconsetResolutionChecksum).slice(0, 12));
+    if (activeProfileSummary.iconSetResolutionChecksum) {
+      parts.push(String(activeProfileSummary.iconSetResolutionChecksum).slice(0, 12));
     }
     return parts.join(' · ');
-  }, [activeProfileSummary.iconsetResolutionChecksum, activeProfileSummary.iconsetSources]);
+  }, [activeProfileSummary.iconSetResolutionChecksum, activeProfileSummary.iconSetSources]);
 
   return (
     <main className="app">
@@ -2086,9 +2086,9 @@ export default function App() {
               ))}
             </select>
           </div>
-          {activeIconsetSummary ? (
-            <p className="profile-iconsets" data-testid="profile-iconsets">
-              {activeIconsetSummary}
+          {activeIconSetSummary ? (
+            <p className="profile-icon-sets" data-testid="profile-icon_sets">
+              {activeIconSetSummary}
             </p>
           ) : null}
           {profileNotice ? (
@@ -2131,13 +2131,13 @@ export default function App() {
           profileId={activeRenderProfileSummary.profileId || activeProfileId}
           profileVersion={activeRenderProfileSummary.profileVersion}
           profileChecksum={activeRenderProfileSummary.checksum}
-          iconsetResolutionChecksum={
-            activeRenderProfileSummary.iconsetResolutionChecksum || activeProfileSummary.iconsetResolutionChecksum
+          iconSetResolutionChecksum={
+            activeRenderProfileSummary.iconSetResolutionChecksum || activeProfileSummary.iconSetResolutionChecksum
           }
-          iconsetSources={
-            activeRenderProfileSummary.iconsetSources?.length
-              ? activeRenderProfileSummary.iconsetSources
-              : activeProfileSummary.iconsetSources
+          iconSetSources={
+            activeRenderProfileSummary.iconSetSources?.length
+              ? activeRenderProfileSummary.iconSetSources
+              : activeProfileSummary.iconSetSources
           }
           profileStage={PROFILE_STAGE}
           themeId={activeRenderThemeSummary.themeId || activeThemeId}
