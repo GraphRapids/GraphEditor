@@ -53,12 +53,12 @@ General spacing rule (applies to all scenarios):
 | `root` | Yes | No | n/a | n/a | Suggest only `nodes`, `links` (ordered by missing section first). |
 | `nodes[]` | Yes | No | n/a | n/a | New item start suggests only `name`; in-object keys must exclude keys already set on the current node. |
 | `nodes[].name` | No | No | n/a | Yes | User input only. |
-| `nodes[].type` | No | Yes | schema enum if present, fallback list | Yes | Suggestions shown, manual value allowed. |
+| `nodes[].type` | No | Yes | active profile `nodeTypes` catalog | Yes | Suggestions shown, manual value allowed. |
 | `links[]` | Yes | No | n/a | n/a | New item start suggests only `from`. |
 | `links[].from` | No | Yes | defined `nodes[].name` values only | Yes | No suggestions if no nodes exist. |
 | `links[].to` | No | Yes | defined `nodes[].name` values only | Yes | No suggestions if no nodes exist. |
 | `links[].label` | No | No | n/a | Yes | User input only. |
-| `links[].type` | No | Yes | schema enum if present, fallback link-type list | Yes | Suggestions shown, manual value allowed. |
+| `links[].type` | No | Yes | active profile `linkTypes` catalog | Yes | Suggestions shown, manual value allowed. |
 
 ---
 
@@ -160,7 +160,7 @@ nodes:
 
 After insertion:
 - Auto-trigger suggest again: `yes`
-- Expected suggestions: type values from schema/fallback list
+- Expected suggestions: type values from the active profile catalog
 
 When user selects: `  ports`
 

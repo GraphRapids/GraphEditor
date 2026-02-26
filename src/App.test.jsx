@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App, {
   applySvgColorScheme,
   computeIndentBackspaceDeleteCount,
-  extractNodeTypesFromSchema,
   extractSvg,
   formatAjvErrors,
   getYamlAutocompleteContext,
@@ -891,6 +890,18 @@ describe('App', () => {
     expect(nestedLinksSuggestion).toBeTruthy();
     expect(nestedLinksSuggestion.insertText).toBe('links:\n  - from: ');
 
+    const nestedBoundaryLinksResult = provider.provideCompletionItems(
+      {
+        getValue: () =>
+          'nodes:\n  - name: node-1\n    type: router\n  - name: subgraph\n    nodes:\n      - name: subnode-1\n      - name: subnode-2\n      ',
+        getLineContent: () => '      ',
+      },
+      { lineNumber: 8, column: 7 }
+    );
+    const nestedBoundaryLinksSuggestion = nestedBoundaryLinksResult.suggestions.find((item) => item.label === '  links');
+    expect(nestedBoundaryLinksSuggestion).toBeTruthy();
+    expect(nestedBoundaryLinksSuggestion.insertText).toBe('    links:\n      - from: ');
+
     const nextNodeAfterTypeResult = provider.provideCompletionItems(
       {
         getValue: () => 'nodes:\n  - name: foobar\n    type: router\n    ',
@@ -1082,14 +1093,18 @@ describe('helpers', () => {
     const yaml = 'nodes:\n  - name: A\n    type: ro';
     const context = getYamlAutocompleteContext(yaml, 3, 13);
     expect(context).toEqual({ kind: 'nodeTypeValue', section: 'nodes', prefix: 'ro' });
-    expect(getYamlAutocompleteSuggestions(context)).toContain('router');
+    expect(getYamlAutocompleteSuggestions(context)).toEqual([]);
+    expect(getYamlAutocompleteSuggestions(context, { nodeTypeSuggestions: ['router', 'switch'] })).toContain('router');
   });
 
   it('getYamlAutocompleteContext returns link type value context', () => {
     const yaml = 'links:\n  - from: A\n    to: B\n    type: di';
     const context = getYamlAutocompleteContext(yaml, 4, 13);
     expect(context).toEqual({ kind: 'linkTypeValue', section: 'links', prefix: 'di' });
-    expect(getYamlAutocompleteSuggestions(context)).toContain('directed');
+    expect(getYamlAutocompleteSuggestions(context)).toEqual([]);
+    expect(getYamlAutocompleteSuggestions(context, { linkTypeSuggestions: ['directed', 'undirected'] })).toContain(
+      'directed'
+    );
   });
 
   it('getYamlAutocompleteSuggestions never returns id as a key', () => {
@@ -1103,20 +1118,5 @@ describe('helpers', () => {
     const yaml = 'links:\n  - from: A:e';
     const context = getYamlAutocompleteContext(yaml, 2, 14);
     expect(context).toEqual({ kind: 'endpointValue', section: 'links', endpoint: 'from', prefix: 'A:e' });
-  });
-
-  it('extractNodeTypesFromSchema returns enum-based node types when available', () => {
-    const schema = {
-      $defs: {
-        MinimalNodeIn: {
-          properties: {
-            type: {
-              anyOf: [{ type: 'string', enum: ['router', 'switch'] }, { type: 'null' }],
-            },
-          },
-        },
-      },
-    };
-    expect(extractNodeTypesFromSchema(schema)).toEqual(['router', 'switch']);
   });
 });

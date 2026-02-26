@@ -31,70 +31,6 @@ const FORBIDDEN_AUTOCOMPLETE_KEYS = new Set(['id']);
 const STRING_COERCION_KEYS = new Set(['name', 'label', 'id', 'from', 'to']);
 const ROOT_SECTION_ALIASES = new Map([['edges', 'links']]);
 
-const NODE_TYPE_SUGGESTIONS = [
-  'router',
-  'switch',
-  'mpls',
-  'vpn',
-  'firewall',
-  'cloud',
-  'datacenter',
-  'azure',
-  'internet',
-  'cpe',
-  'database',
-  'server',
-  'host',
-  'ran',
-  'radio',
-  'splitter',
-  'devices',
-  'satelliteuplink',
-  'satellite',
-  'broadcast',
-  'lan',
-  'diagnostics',
-  'analytics',
-  'monitor',
-  'logging',
-  'iam',
-  'idea',
-  'tools',
-  'cctv',
-  'process',
-  'cooling',
-  'security',
-  'console',
-  'gis',
-  'city',
-  'settlement',
-  'sdu',
-  'mdu',
-  'company',
-  'farm',
-  'airport',
-  'mine',
-  'fieldservice',
-  'facility',
-  'energy',
-  'transmission',
-  'ip',
-  'mobilecore',
-  'access',
-  'operation',
-  'controller',
-  'product',
-  'consumer',
-  'fortinet',
-  'juniper',
-  'ericsson',
-  'huawei',
-  'cisco',
-  'mikrotik',
-];
-
-const LINK_TYPE_SUGGESTIONS = ['directed', 'undirected', 'association', 'dependency', 'generalization', 'none'];
-
 const DEFAULT_AUTOCOMPLETE_SPEC = {
   rootSections: ['nodes', 'links'],
   node: {
@@ -115,7 +51,7 @@ const KEY_DOCUMENTATION = {
   edges: 'Alias for links. Insertion is normalized to links.',
   name: 'Display name for a node. Also used as a default endpoint identifier.',
   id: 'Stable identifier for nodes/links.',
-  type: 'Domain node/link type. Node types are schema-driven plus built-in defaults.',
+  type: 'Domain node/link type. Type suggestions are profile-driven.',
   from: 'Link source endpoint in node or node:port format.',
   to: 'Link destination endpoint in node or node:port format.',
   label: 'Optional display label for links.',
@@ -1028,78 +964,10 @@ function buildAutocompleteRuntimeFromMeta(text, lineNumber, column, meta) {
   };
 }
 
-export function extractNodeTypesFromSchema(schema) {
-  const candidates = [];
-  const addEnum = (arr) => {
-    if (!Array.isArray(arr)) {
-      return;
-    }
-    for (const value of arr) {
-      if (typeof value === 'string' && value.trim()) {
-        candidates.push(value);
-      }
-    }
-  };
-  try {
-    addEnum(schema?.$defs?.MinimalNodeIn?.properties?.type?.enum);
-    const anyOf = schema?.$defs?.MinimalNodeIn?.properties?.type?.anyOf;
-    if (Array.isArray(anyOf)) {
-      for (const item of anyOf) {
-        addEnum(item?.enum);
-      }
-    }
-
-    const nodeSpec = resolveItemObjectSchema(schema?.properties?.nodes);
-    addEnum(nodeSpec?.properties?.type?.enum);
-    if (Array.isArray(nodeSpec?.properties?.type?.anyOf)) {
-      for (const item of nodeSpec.properties.type.anyOf) {
-        addEnum(item?.enum);
-      }
-    }
-  } catch (_err) {
-    // Keep default suggestions.
-  }
-  return [...new Set(candidates)];
-}
-
-function extractLinkTypesFromSchema(schema) {
-  const candidates = [];
-  const addEnum = (arr) => {
-    if (!Array.isArray(arr)) {
-      return;
-    }
-    for (const value of arr) {
-      if (typeof value === 'string' && value.trim()) {
-        candidates.push(value);
-      }
-    }
-  };
-
-  try {
-    const linkSpec = resolveItemObjectSchema(schema?.properties?.links || schema?.properties?.edges);
-    addEnum(linkSpec?.properties?.type?.enum);
-    if (Array.isArray(linkSpec?.properties?.type?.anyOf)) {
-      for (const item of linkSpec.properties.type.anyOf) {
-        addEnum(item?.enum);
-      }
-    }
-  } catch (_err) {
-    // Keep fallback list.
-  }
-
-  return [...new Set(candidates)];
-}
-
 export function getYamlAutocompleteSuggestions(context, meta = {}) {
   const spec = meta.spec || DEFAULT_AUTOCOMPLETE_SPEC;
-  const nodeTypes =
-    Array.isArray(meta.nodeTypeSuggestions) && meta.nodeTypeSuggestions.length
-      ? meta.nodeTypeSuggestions
-      : NODE_TYPE_SUGGESTIONS;
-  const linkTypes =
-    Array.isArray(meta.linkTypeSuggestions) && meta.linkTypeSuggestions.length
-      ? meta.linkTypeSuggestions
-      : LINK_TYPE_SUGGESTIONS;
+  const nodeTypes = Array.isArray(meta.nodeTypeSuggestions) ? meta.nodeTypeSuggestions : [];
+  const linkTypes = Array.isArray(meta.linkTypeSuggestions) ? meta.linkTypeSuggestions : [];
 
   if (context.kind === 'nodeTypeValue') {
     return nodeTypes.filter((item) => item.startsWith((context.prefix || '').toLowerCase()));
@@ -1544,8 +1412,8 @@ export default function App() {
   const abortRef = useRef(null);
   const requestIdRef = useRef(0);
 
-  const nodeTypeSuggestionsRef = useRef(NODE_TYPE_SUGGESTIONS);
-  const linkTypeSuggestionsRef = useRef(LINK_TYPE_SUGGESTIONS);
+  const nodeTypeSuggestionsRef = useRef([]);
+  const linkTypeSuggestionsRef = useRef([]);
   const autocompleteSpecRef = useRef(DEFAULT_AUTOCOMPLETE_SPEC);
 
   const completionMetaCacheRef = useRef(EMPTY_COMPLETION_META_CACHE);
@@ -1675,12 +1543,6 @@ export default function App() {
           return;
         }
 
-        const extractedNodeTypes = extractNodeTypesFromSchema(nextSchema);
-        nodeTypeSuggestionsRef.current =
-          extractedNodeTypes.length > 0 ? extractedNodeTypes : NODE_TYPE_SUGGESTIONS;
-        const extractedLinkTypes = extractLinkTypesFromSchema(nextSchema);
-        linkTypeSuggestionsRef.current =
-          extractedLinkTypes.length > 0 ? extractedLinkTypes : LINK_TYPE_SUGGESTIONS;
         autocompleteSpecRef.current = extractAutocompleteSpecFromSchema(nextSchema);
 
         const ajv = new Ajv2020({ allErrors: true, strict: false });
