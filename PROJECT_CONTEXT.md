@@ -9,6 +9,7 @@ GraphEditor is the GraphRapids web application playground for authoring graph YA
 - Low-latency live rendering with request debouncing and cancellation.
 - Clear error handling without blocking editing.
 - Keep active runtime profile (layout/catalog) and theme (render CSS) consistent across API calls.
+- Surface active iconset resolution/source metadata for selected profiles.
 
 ## System Snapshot
 - Frontend: React + Vite.
@@ -17,7 +18,7 @@ GraphEditor is the GraphRapids web application playground for authoring graph YA
 - Viewer: `@graphrapids/graph-view`.
 - Validation: YAML parse + JSON schema validation (AJV).
 - Render backend: GraphAPI (`/api/render/svg`) behind Vite proxy.
-- Profile runtime backend: GraphAPI (`/api/v1/profiles`, `/api/v1/autocomplete/catalog`).
+- Profile runtime backend: GraphAPI (`/api/v2/profiles`, `/api/v2/autocomplete/catalog`, `/api/v2/profiles/{id}/iconset-resolution`, with v1 fallback for profile list/catalog).
 - Theme runtime backend: GraphAPI (`/api/v1/themes`).
 
 ## Runtime Configuration

@@ -273,6 +273,43 @@ function installFetchMock(renderHandler) {
         ],
       });
     }
+    if (url.includes('/api/v2/profiles/default/iconset-resolution')) {
+      return jsonResponse({
+        schemaVersion: 'v1',
+        profileId: 'default',
+        profileVersion: 1,
+        profileChecksum: 'abc',
+        conflictPolicy: 'reject',
+        resolvedEntries: {
+          router: 'mdi:router',
+          switch: 'mdi:switch',
+        },
+        sources: [
+          {
+            iconsetId: 'default',
+            iconsetVersion: 1,
+            checksum: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+          },
+        ],
+        keySources: {},
+        checksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
+      });
+    }
+    if (url.includes('/api/v2/profiles')) {
+      return jsonResponse({
+        profiles: [
+          {
+            profileId: 'default',
+            name: 'Default Runtime Profile',
+            draftVersion: 1,
+            publishedVersion: 1,
+            checksum: 'abc',
+            iconsetResolutionChecksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
+            updatedAt: '2026-02-26T00:00:00Z',
+          },
+        ],
+      });
+    }
     if (url.includes('/api/v1/profiles')) {
       return jsonResponse({
         profiles: [
@@ -285,6 +322,18 @@ function installFetchMock(renderHandler) {
             updatedAt: '2026-02-26T00:00:00Z',
           },
         ],
+      });
+    }
+    if (url.includes('/api/v2/autocomplete/catalog')) {
+      return jsonResponse({
+        schemaVersion: 'v2',
+        profileId: 'default',
+        profileVersion: 1,
+        profileChecksum: 'abc',
+        iconsetResolutionChecksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
+        checksum: 'abc',
+        nodeTypes: ['router', 'switch'],
+        linkTypes: ['directed', 'undirected'],
       });
     }
     if (url.includes('/api/v1/autocomplete/catalog')) {
@@ -363,6 +412,8 @@ describe('App', () => {
           'X-GraphAPI-Profile-Id': 'default',
           'X-GraphAPI-Profile-Version': '1',
           'X-GraphAPI-Profile-Checksum': '0123456789abcdef',
+          'X-GraphAPI-Iconset-Resolution-Checksum': '111111111111abcdef',
+          'X-GraphAPI-Iconset-Sources': 'default@1',
           'X-GraphAPI-Theme-Id': 'default',
           'X-GraphAPI-Theme-Version': '2',
           'X-GraphAPI-Theme-Checksum': 'abcdef0123456789',
@@ -384,6 +435,8 @@ describe('App', () => {
     expect(screen.getByTestId('profile-meta').textContent).toContain('Profile: default');
     expect(screen.getByTestId('profile-meta').textContent).toContain('v1');
     expect(screen.getByTestId('profile-meta').textContent).toContain('Theme: default');
+    expect(screen.getByTestId('profile-iconsets').textContent).toContain('Iconsets');
+    expect(screen.getByTestId('profile-iconsets').textContent).toContain('default@1');
 
     expect(countRenderCalls(fetchMock)).toBeGreaterThanOrEqual(1);
   });

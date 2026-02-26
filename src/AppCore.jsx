@@ -93,11 +93,45 @@ function normalizeProfileSummary(raw = {}) {
     .trim()
     .toLowerCase();
   const profileVersion = toPositiveInt(raw.profileVersion);
-  const checksum = String(raw.checksum || '').trim();
+  const checksum = String(raw.profileChecksum || raw.checksum || '').trim();
+  const iconsetResolutionChecksum = String(raw.iconsetResolutionChecksum || '').trim();
+  const rawSources = Array.isArray(raw.iconsetSources)
+    ? raw.iconsetSources
+    : typeof raw.iconsetSources === 'string'
+      ? String(raw.iconsetSources || '')
+          .split(',')
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+          .map((token) => {
+            const [iconsetId, versionToken] = token.split('@');
+            const iconsetVersion = toPositiveInt(versionToken);
+            return iconsetId && iconsetVersion
+              ? { iconsetId: String(iconsetId).trim().toLowerCase(), iconsetVersion }
+              : null;
+          })
+          .filter(Boolean)
+      : [];
+  const iconsetSources = rawSources
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+      const iconsetId = String(item.iconsetId || '')
+        .trim()
+        .toLowerCase();
+      const iconsetVersion = toPositiveInt(item.iconsetVersion);
+      if (!iconsetId || !iconsetVersion) {
+        return null;
+      }
+      return { iconsetId, iconsetVersion };
+    })
+    .filter(Boolean);
   return {
     profileId,
     profileVersion,
     checksum,
+    iconsetResolutionChecksum,
+    iconsetSources,
   };
 }
 
@@ -1188,10 +1222,19 @@ function resolveProfileSummaryFromHeaders(headers, fallback = {}) {
       .toLowerCase() || fallbackSummary.profileId;
   const profileVersion = toPositiveInt(headers.get('x-graphapi-profile-version')) || fallbackSummary.profileVersion;
   const checksum = String(headers.get('x-graphapi-profile-checksum') || '').trim() || fallbackSummary.checksum;
+  const iconsetResolutionChecksum =
+    String(headers.get('x-graphapi-iconset-resolution-checksum') || '').trim() ||
+    fallbackSummary.iconsetResolutionChecksum;
+  const iconsetSourcesHeader = String(headers.get('x-graphapi-iconset-sources') || '').trim();
+  const iconsetSources = iconsetSourcesHeader
+    ? normalizeProfileSummary({ iconsetSources: iconsetSourcesHeader }).iconsetSources
+    : fallbackSummary.iconsetSources;
   return {
     profileId,
     profileVersion,
     checksum,
+    iconsetResolutionChecksum,
+    iconsetSources,
   };
 }
 
@@ -1443,6 +1486,8 @@ export default function App() {
     profileId: '',
     profileVersion: null,
     checksum: '',
+    iconsetResolutionChecksum: '',
+    iconsetSources: [],
   });
   const [activeThemeSummary, setActiveThemeSummary] = useState({
     themeId: '',
@@ -1453,6 +1498,8 @@ export default function App() {
     profileId: '',
     profileVersion: null,
     checksum: '',
+    iconsetResolutionChecksum: '',
+    iconsetSources: [],
   });
   const [activeRenderThemeSummary, setActiveRenderThemeSummary] = useState({
     themeId: '',
@@ -1491,7 +1538,10 @@ export default function App() {
 
     async function loadProfiles() {
       try {
-        const response = await fetch(`${API_BASE}/v1/profiles`);
+        let response = await fetch(`${API_BASE}/v2/profiles`);
+        if (response.status === 404) {
+          response = await fetch(`${API_BASE}/v1/profiles`);
+        }
         if (!response.ok) {
           throw new Error(`Profile list request failed with ${response.status}`);
         }
@@ -1577,6 +1627,8 @@ export default function App() {
         profileId: '',
         profileVersion: null,
         checksum: '',
+        iconsetResolutionChecksum: '',
+        iconsetSources: [],
       });
       return;
     }
@@ -1586,12 +1638,20 @@ export default function App() {
 
     async function loadActiveProfileCatalog() {
       try {
-        const url = new URL(`${API_BASE}/v1/autocomplete/catalog`, window.location.origin);
+        const url = new URL(`${API_BASE}/v2/autocomplete/catalog`, window.location.origin);
         url.searchParams.set('profile_id', activeProfileId);
         url.searchParams.set('stage', PROFILE_STAGE);
-        const response = await fetch(`${url.pathname}${url.search}`, {
+        let response = await fetch(`${url.pathname}${url.search}`, {
           signal: controller.signal,
         });
+        if (response.status === 404) {
+          const v1Url = new URL(`${API_BASE}/v1/autocomplete/catalog`, window.location.origin);
+          v1Url.searchParams.set('profile_id', activeProfileId);
+          v1Url.searchParams.set('stage', PROFILE_STAGE);
+          response = await fetch(`${v1Url.pathname}${v1Url.search}`, {
+            signal: controller.signal,
+          });
+        }
         if (!response.ok) {
           throw new Error(`Profile catalog request failed with ${response.status}`);
         }
@@ -1609,6 +1669,8 @@ export default function App() {
           profileId: activeProfileId,
           profileVersion: null,
           checksum: '',
+          iconsetResolutionChecksum: '',
+          iconsetSources: [],
         });
         setProfileCatalogWarning(
           `Profile catalog unavailable for '${activeProfileId}': ${err?.message || 'request failed'}`
@@ -1622,6 +1684,55 @@ export default function App() {
       controller.abort();
     };
   }, [activeProfileId]);
+
+  useEffect(() => {
+    if (!activeProfileId) {
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    async function loadIconsetResolution() {
+      try {
+        const url = new URL(
+          `${API_BASE}/v2/profiles/${encodeURIComponent(activeProfileId)}/iconset-resolution`,
+          window.location.origin
+        );
+        url.searchParams.set('stage', PROFILE_STAGE);
+        if (Number.isFinite(activeProfileSummary.profileVersion) && Number(activeProfileSummary.profileVersion) > 0) {
+          url.searchParams.set('profile_version', String(Number(activeProfileSummary.profileVersion)));
+        }
+        const response = await fetch(`${url.pathname}${url.search}`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          return;
+        }
+        const body = await response.json();
+        if (cancelled) {
+          return;
+        }
+        setActiveProfileSummary((current) =>
+          normalizeProfileSummary({
+            ...current,
+            iconsetResolutionChecksum: body?.checksum || current.iconsetResolutionChecksum,
+            iconsetSources: Array.isArray(body?.sources) ? body.sources : current.iconsetSources,
+          })
+        );
+      } catch (err) {
+        if (cancelled || err?.name === 'AbortError') {
+          return;
+        }
+      }
+    }
+
+    loadIconsetResolution();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [activeProfileId, activeProfileSummary.profileVersion]);
 
   useEffect(() => {
     if (!activeThemeId) {
@@ -1758,6 +1869,10 @@ export default function App() {
         activeProfileSummary.profileId || 'no-profile',
         activeProfileSummary.profileVersion || 'no-version',
         activeProfileSummary.checksum || 'no-checksum',
+        activeProfileSummary.iconsetResolutionChecksum || 'no-iconset-checksum',
+        (activeProfileSummary.iconsetSources || [])
+          .map((item) => `${item.iconsetId}@${item.iconsetVersion}`)
+          .join(',') || 'no-iconset-sources',
         activeThemeSummary.themeId || 'no-theme',
         activeThemeSummary.themeVersion || 'no-theme-version',
         activeThemeSummary.checksum || 'no-theme-checksum',
@@ -1797,6 +1912,8 @@ export default function App() {
             profileStage: PROFILE_STAGE,
             profileVersion: activeProfileSummary.profileVersion,
             checksum: activeProfileSummary.checksum,
+            iconsetResolutionChecksum: activeProfileSummary.iconsetResolutionChecksum,
+            iconsetSources: activeProfileSummary.iconsetSources,
           }
         : {};
       const themeContext = activeThemeId
@@ -1854,6 +1971,8 @@ export default function App() {
     activeProfileSummary.profileId,
     activeProfileSummary.profileVersion,
     activeProfileSummary.checksum,
+    activeProfileSummary.iconsetResolutionChecksum,
+    activeProfileSummary.iconsetSources,
     activeThemeId,
     activeThemeSummary.themeId,
     activeThemeSummary.themeVersion,
@@ -1895,6 +2014,37 @@ export default function App() {
     return notices.join(' | ');
   }, [profileCatalogWarning, profilesError, themesError]);
 
+  const activeIconsetSummary = useMemo(() => {
+    const sources = Array.isArray(activeProfileSummary.iconsetSources)
+      ? activeProfileSummary.iconsetSources
+      : [];
+    const labels = sources
+      .map((item) => {
+        const iconsetId = String(item?.iconsetId || '')
+          .trim()
+          .toLowerCase();
+        const iconsetVersion = toPositiveInt(item?.iconsetVersion);
+        if (!iconsetId || !iconsetVersion) {
+          return '';
+        }
+        return `${iconsetId}@${iconsetVersion}`;
+      })
+      .filter(Boolean);
+
+    if (!activeProfileSummary.iconsetResolutionChecksum && labels.length === 0) {
+      return '';
+    }
+
+    const parts = ['Iconsets'];
+    if (labels.length) {
+      parts.push(labels.join(','));
+    }
+    if (activeProfileSummary.iconsetResolutionChecksum) {
+      parts.push(String(activeProfileSummary.iconsetResolutionChecksum).slice(0, 12));
+    }
+    return parts.join(' · ');
+  }, [activeProfileSummary.iconsetResolutionChecksum, activeProfileSummary.iconsetSources]);
+
   return (
     <main className="app">
       <section className="pane pane-left">
@@ -1935,6 +2085,11 @@ export default function App() {
               ))}
             </select>
           </div>
+          {activeIconsetSummary ? (
+            <p className="profile-iconsets" data-testid="profile-iconsets">
+              {activeIconsetSummary}
+            </p>
+          ) : null}
           {profileNotice ? (
             <p className="profile-warning" role="status" data-testid="profile-notice">
               {profileNotice}
@@ -1975,6 +2130,14 @@ export default function App() {
           profileId={activeRenderProfileSummary.profileId || activeProfileId}
           profileVersion={activeRenderProfileSummary.profileVersion}
           profileChecksum={activeRenderProfileSummary.checksum}
+          iconsetResolutionChecksum={
+            activeRenderProfileSummary.iconsetResolutionChecksum || activeProfileSummary.iconsetResolutionChecksum
+          }
+          iconsetSources={
+            activeRenderProfileSummary.iconsetSources?.length
+              ? activeRenderProfileSummary.iconsetSources
+              : activeProfileSummary.iconsetSources
+          }
           profileStage={PROFILE_STAGE}
           themeId={activeRenderThemeSummary.themeId || activeThemeId}
           themeVersion={activeRenderThemeSummary.themeVersion}
