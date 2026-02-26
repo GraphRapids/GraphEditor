@@ -1538,10 +1538,7 @@ export default function App() {
 
     async function loadProfiles() {
       try {
-        let response = await fetch(`${API_BASE}/v2/profiles`);
-        if (response.status === 404) {
-          response = await fetch(`${API_BASE}/v1/profiles`);
-        }
+        const response = await fetch(`${API_BASE}/v1/profiles`);
         if (!response.ok) {
           throw new Error(`Profile list request failed with ${response.status}`);
         }
@@ -1638,20 +1635,12 @@ export default function App() {
 
     async function loadActiveProfileCatalog() {
       try {
-        const url = new URL(`${API_BASE}/v2/autocomplete/catalog`, window.location.origin);
+        const url = new URL(`${API_BASE}/v1/autocomplete/catalog`, window.location.origin);
         url.searchParams.set('profile_id', activeProfileId);
         url.searchParams.set('stage', PROFILE_STAGE);
-        let response = await fetch(`${url.pathname}${url.search}`, {
+        const response = await fetch(`${url.pathname}${url.search}`, {
           signal: controller.signal,
         });
-        if (response.status === 404) {
-          const v1Url = new URL(`${API_BASE}/v1/autocomplete/catalog`, window.location.origin);
-          v1Url.searchParams.set('profile_id', activeProfileId);
-          v1Url.searchParams.set('stage', PROFILE_STAGE);
-          response = await fetch(`${v1Url.pathname}${v1Url.search}`, {
-            signal: controller.signal,
-          });
-        }
         if (!response.ok) {
           throw new Error(`Profile catalog request failed with ${response.status}`);
         }
@@ -1696,7 +1685,7 @@ export default function App() {
     async function loadIconsetResolution() {
       try {
         const url = new URL(
-          `${API_BASE}/v2/profiles/${encodeURIComponent(activeProfileId)}/iconset-resolution`,
+          `${API_BASE}/v1/profiles/${encodeURIComponent(activeProfileId)}/iconset-resolution`,
           window.location.origin
         );
         url.searchParams.set('stage', PROFILE_STAGE);

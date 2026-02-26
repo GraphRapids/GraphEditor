@@ -273,7 +273,7 @@ function installFetchMock(renderHandler) {
         ],
       });
     }
-    if (url.includes('/api/v2/profiles/default/iconset-resolution')) {
+    if (url.includes('/api/v1/profiles/default/iconset-resolution')) {
       return jsonResponse({
         schemaVersion: 'v1',
         profileId: 'default',
@@ -295,7 +295,7 @@ function installFetchMock(renderHandler) {
         checksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
       });
     }
-    if (url.includes('/api/v2/profiles')) {
+    if (url.includes('/api/v1/profiles')) {
       return jsonResponse({
         profiles: [
           {
@@ -310,37 +310,13 @@ function installFetchMock(renderHandler) {
         ],
       });
     }
-    if (url.includes('/api/v1/profiles')) {
-      return jsonResponse({
-        profiles: [
-          {
-            profileId: 'default',
-            name: 'Default Runtime Profile',
-            draftVersion: 1,
-            publishedVersion: 1,
-            checksum: 'abc',
-            updatedAt: '2026-02-26T00:00:00Z',
-          },
-        ],
-      });
-    }
-    if (url.includes('/api/v2/autocomplete/catalog')) {
-      return jsonResponse({
-        schemaVersion: 'v2',
-        profileId: 'default',
-        profileVersion: 1,
-        profileChecksum: 'abc',
-        iconsetResolutionChecksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
-        checksum: 'abc',
-        nodeTypes: ['router', 'switch'],
-        linkTypes: ['directed', 'undirected'],
-      });
-    }
     if (url.includes('/api/v1/autocomplete/catalog')) {
       return jsonResponse({
         schemaVersion: 'v1',
         profileId: 'default',
         profileVersion: 1,
+        profileChecksum: 'abc',
+        iconsetResolutionChecksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
         checksum: 'abc',
         nodeTypes: ['router', 'switch'],
         linkTypes: ['directed', 'undirected'],
