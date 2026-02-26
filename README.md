@@ -7,7 +7,7 @@
 
 GraphEditor is a React web app for authoring graph YAML and previewing rendered SVG from GraphAPI.
 
-It is a playground client for the GraphRapids runtime profile architecture; GraphAPI remains the canonical runtime service.
+It is a playground client for the GraphRapids runtime graph-type architecture; GraphAPI remains the canonical runtime service.
 
 ## Current Capabilities
 
@@ -16,9 +16,9 @@ It is a playground client for the GraphRapids runtime profile architecture; Grap
 - Step-by-step, schema-aware autocomplete for graph authoring
 - YAML syntax + JSON schema validation with Monaco markers
 - Debounced/abortable render pipeline with stale-response protection
-- Runtime layout profile selection from GraphAPI (`/v1/profiles`)
+- Runtime graph type selection from GraphAPI (`/v1/graph-types`)
 - Runtime render theme selection from GraphAPI (`/v1/themes`)
-- Profile-driven autocomplete and profile+theme-driven rendering coherence
+- Graph-type-driven autocomplete and graph-type+theme rendering coherence
 - Interactive SVG pan/zoom preview
 - Light/dark mode and SVG download
 
@@ -69,7 +69,7 @@ GRAPHEDITOR_HOST=127.0.0.1
 GRAPHEDITOR_PORT=9000
 GRAPHAPI_HOST=127.0.0.1
 GRAPHAPI_PORT=8000
-VITE_GRAPHEDITOR_PROFILE_ID=default
+VITE_GRAPHEDITOR_GRAPH_TYPE_ID=default
 VITE_GRAPHEDITOR_THEME_ID=default
 ```
 
@@ -95,10 +95,10 @@ npm run test:e2e:headed
 Via `/api` proxy:
 
 - `GET /api/schemas/minimal-input.schema.json`
-- `GET /api/v1/profiles`
+- `GET /api/v1/graph-types`
 - `GET /api/v1/themes`
-- `GET /api/v1/autocomplete/catalog?profile_id=...`
-- `POST /api/render/svg?profile_id=...&theme_id=...`
+- `GET /api/v1/autocomplete/catalog?graph_type_id=...`
+- `POST /api/render/svg?graph_type_id=...&theme_id=...`
 
 ## Autocomplete Behavior (Current)
 
@@ -116,7 +116,7 @@ Via `/api` proxy:
   - Exact node match in endpoint value suggests `:` for optional port suffix
 - Value policy:
   - No suggestions for `name` and `label` values
-  - `type` values come from active runtime profile catalog
+  - `type` values come from active runtime graph type catalog
   - `id` is excluded from key suggestions
 
 Behavior contract file:
@@ -130,8 +130,8 @@ Behavior contract file:
 3. Debounce render request (`170-380ms`, size-aware).
 4. Abort stale in-flight requests.
 5. Reject out-of-order responses using request IDs.
-6. Cache successful render output by normalized content hash + profile/theme version/checksum.
-7. Display profile + theme metadata from GraphAPI response headers.
+6. Cache successful render output by normalized content hash + graph type/theme version/checksum.
+7. Display graph type + theme metadata from GraphAPI response headers.
 
 Error handling:
 

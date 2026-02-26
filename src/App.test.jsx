@@ -273,12 +273,13 @@ function installFetchMock(renderHandler) {
         ],
       });
     }
-    if (url.includes('/api/v1/profiles/default/iconset-resolution')) {
+    if (url.includes('/api/v1/graph-types/default/runtime')) {
       return jsonResponse({
         schemaVersion: 'v1',
-        profileId: 'default',
-        profileVersion: 1,
-        profileChecksum: 'abc',
+        graphTypeId: 'default',
+        graphTypeVersion: 1,
+        graphTypeChecksum: 'abc',
+        runtimeChecksum: 'runtime-checksum-abc',
         conflictPolicy: 'reject',
         resolvedEntries: {
           router: 'mdi:router',
@@ -291,19 +292,22 @@ function installFetchMock(renderHandler) {
             checksum: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
           },
         ],
+        linkTypes: ['directed', 'undirected'],
+        edgeTypeOverrides: {},
         keySources: {},
-        checksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
+        checksum: 'runtime-checksum-abc',
       });
     }
-    if (url.includes('/api/v1/profiles')) {
+    if (url.includes('/api/v1/graph-types')) {
       return jsonResponse({
-        profiles: [
+        graphTypes: [
           {
-            profileId: 'default',
-            name: 'Default Runtime Profile',
+            graphTypeId: 'default',
+            name: 'Default Runtime Graph Type',
             draftVersion: 1,
             publishedVersion: 1,
             checksum: 'abc',
+            runtimeChecksum: 'runtime-checksum-abc',
             iconsetResolutionChecksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
             updatedAt: '2026-02-26T00:00:00Z',
           },
@@ -313,9 +317,10 @@ function installFetchMock(renderHandler) {
     if (url.includes('/api/v1/autocomplete/catalog')) {
       return jsonResponse({
         schemaVersion: 'v1',
-        profileId: 'default',
-        profileVersion: 1,
-        profileChecksum: 'abc',
+        graphTypeId: 'default',
+        graphTypeVersion: 1,
+        graphTypeChecksum: 'abc',
+        runtimeChecksum: 'runtime-checksum-abc',
         iconsetResolutionChecksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
         checksum: 'abc',
         nodeTypes: ['router', 'switch'],
@@ -385,9 +390,10 @@ describe('App', () => {
         status: 200,
         headers: {
           'Content-Type': 'image/svg+xml',
-          'X-GraphAPI-Profile-Id': 'default',
-          'X-GraphAPI-Profile-Version': '1',
-          'X-GraphAPI-Profile-Checksum': '0123456789abcdef',
+          'X-GraphAPI-Graph-Type-Id': 'default',
+          'X-GraphAPI-Graph-Type-Version': '1',
+          'X-GraphAPI-Graph-Type-Checksum': '0123456789abcdef',
+          'X-GraphAPI-Graph-Type-Runtime-Checksum': 'runtime-checksum-abc',
           'X-GraphAPI-Iconset-Resolution-Checksum': '111111111111abcdef',
           'X-GraphAPI-Iconset-Sources': 'default@1',
           'X-GraphAPI-Theme-Id': 'default',
@@ -402,9 +408,9 @@ describe('App', () => {
 
     await waitFor(() => expect(screen.getByText('Rendered.')).toBeInTheDocument());
     expect(renderRequestUrl).toContain('/api/render/svg?');
-    expect(renderRequestUrl).toContain('profile_id=default');
-    expect(renderRequestUrl).toContain('profile_stage=published');
-    expect(renderRequestUrl).toContain('profile_version=1');
+    expect(renderRequestUrl).toContain('graph_type_id=default');
+    expect(renderRequestUrl).toContain('graph_type_stage=published');
+    expect(renderRequestUrl).toContain('graph_type_version=1');
     expect(renderRequestUrl).toContain('theme_id=default');
     expect(renderRequestUrl).toContain('theme_stage=published');
     expect(renderRequestUrl).toContain('theme_version=1');

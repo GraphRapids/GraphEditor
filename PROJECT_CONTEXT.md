@@ -1,15 +1,15 @@
 # GraphEditor - Project Context
 
 ## Purpose
-GraphEditor is the GraphRapids web application playground for authoring graph YAML and previewing rendered SVG output against the canonical GraphAPI runtime (layout profiles + render themes).
+GraphEditor is the GraphRapids web application playground for authoring graph YAML and previewing rendered SVG output against the canonical GraphAPI runtime (graph types + render themes).
 
 ## Primary Goals
 - Fast, schema-aware YAML authoring workflow.
 - Predictable, step-by-step autocomplete behavior.
 - Low-latency live rendering with request debouncing and cancellation.
 - Clear error handling without blocking editing.
-- Keep active runtime profile (layout/catalog) and theme (render CSS) consistent across API calls.
-- Surface active iconset resolution/source metadata for selected profiles.
+- Keep active runtime graph type (layout/catalog) and theme (render CSS) consistent across API calls.
+- Surface active iconset resolution/source metadata for the selected graph type.
 
 ## System Snapshot
 - Frontend: React + Vite.
@@ -18,7 +18,7 @@ GraphEditor is the GraphRapids web application playground for authoring graph YA
 - Viewer: `@graphrapids/graph-view`.
 - Validation: YAML parse + JSON schema validation (AJV).
 - Render backend: GraphAPI (`/api/render/svg`) behind Vite proxy.
-- Profile runtime backend: GraphAPI (`/api/v1/profiles`, `/api/v1/autocomplete/catalog`, `/api/v1/profiles/{id}/iconset-resolution`).
+- Graph type runtime backend: GraphAPI (`/api/v1/graph-types`, `/api/v1/autocomplete/catalog`, `/api/v1/graph-types/{id}/runtime`).
 - Theme runtime backend: GraphAPI (`/api/v1/themes`).
 
 ## Runtime Configuration
@@ -26,7 +26,7 @@ GraphEditor is the GraphRapids web application playground for authoring graph YA
 - `GRAPHEDITOR_PORT`
 - `GRAPHAPI_HOST`
 - `GRAPHAPI_PORT`
-- `VITE_GRAPHEDITOR_PROFILE_ID`
+- `VITE_GRAPHEDITOR_GRAPH_TYPE_ID`
 - `VITE_GRAPHEDITOR_THEME_ID`
 
 ## Architecture Notes
@@ -50,7 +50,7 @@ When behavior changes:
 ## Current Behavior Guardrails
 - Root suggestions only for missing sections (`nodes`, `links`).
 - No value suggestions for `name` and `label`.
-- `type` values are suggested from active profile catalog options.
+- `type` values are suggested from active graph type catalog options.
 - Link endpoint values (`from`, `to`) suggest known node names.
 - Recursive behavior applies for nested `nodes`/`links`.
 
@@ -60,7 +60,7 @@ When behavior changes:
 - Render requests are debounced and abortable.
 - Out-of-order responses must not overwrite newer previews.
 - Keep last known good SVG visible on render failures.
-- Include profile + theme id/version/checksum in render cache identity.
+- Include graph type + theme id/version/checksum in render cache identity.
 
 ## Safety Rules
 - Do not inject raw SVG with `dangerouslySetInnerHTML`.

@@ -56,18 +56,20 @@ async function mockApi(page: Page) {
     });
   });
 
-  await page.route('**/api/v1/profiles', async (route) => {
+  await page.route('**/api/v1/graph-types', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        profiles: [
+        graphTypes: [
           {
-            profileId: 'default',
-            name: 'Default Runtime Profile',
+            graphTypeId: 'default',
+            name: 'Default Runtime Graph Type',
             draftVersion: 1,
             publishedVersion: 1,
             checksum: 'abc',
+            runtimeChecksum: 'runtime-checksum-abc',
+            iconsetResolutionChecksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
             updatedAt: '2026-02-26T00:00:00Z',
           },
         ],
@@ -116,8 +118,11 @@ async function mockApi(page: Page) {
       contentType: 'application/json',
       body: JSON.stringify({
         schemaVersion: 'v1',
-        profileId: 'default',
-        profileVersion: 1,
+        graphTypeId: 'default',
+        graphTypeVersion: 1,
+        graphTypeChecksum: 'abc',
+        runtimeChecksum: 'runtime-checksum-abc',
+        iconsetResolutionChecksum: 'fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafe',
         checksum: 'abc',
         nodeTypes: ['router', 'switch'],
         linkTypes: ['directed', 'undirected'],

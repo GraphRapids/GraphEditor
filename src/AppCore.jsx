@@ -8,7 +8,9 @@ import GraphView from '@graphrapids/graph-view';
 const API_BASE = '/api';
 const PROFILE_STAGE = 'published';
 const THEME_STAGE = 'published';
-const DEFAULT_PROFILE_ID = String(import.meta.env.VITE_GRAPHEDITOR_PROFILE_ID || 'default').trim().toLowerCase();
+const DEFAULT_PROFILE_ID = String(import.meta.env.VITE_GRAPHEDITOR_GRAPH_TYPE_ID || 'default')
+  .trim()
+  .toLowerCase();
 const DEFAULT_THEME_ID = String(import.meta.env.VITE_GRAPHEDITOR_THEME_ID || 'default').trim().toLowerCase();
 const MIN_DEBOUNCE_MS = 170;
 const MAX_DEBOUNCE_MS = 380;
@@ -89,11 +91,12 @@ function toPositiveInt(value) {
 }
 
 function normalizeProfileSummary(raw = {}) {
-  const profileId = String(raw.profileId || '')
+  const profileId = String(raw.graphTypeId || raw.profileId || '')
     .trim()
     .toLowerCase();
-  const profileVersion = toPositiveInt(raw.profileVersion);
-  const checksum = String(raw.profileChecksum || raw.checksum || '').trim();
+  const profileVersion = toPositiveInt(raw.graphTypeVersion || raw.profileVersion);
+  const checksum = String(raw.graphTypeChecksum || raw.profileChecksum || raw.checksum || '').trim();
+  const runtimeChecksum = String(raw.runtimeChecksum || '').trim();
   const iconsetResolutionChecksum = String(raw.iconsetResolutionChecksum || '').trim();
   const rawSources = Array.isArray(raw.iconsetSources)
     ? raw.iconsetSources
@@ -130,6 +133,7 @@ function normalizeProfileSummary(raw = {}) {
     profileId,
     profileVersion,
     checksum,
+    runtimeChecksum,
     iconsetResolutionChecksum,
     iconsetSources,
   };
@@ -1195,11 +1199,11 @@ function buildRenderEndpoint(profileContext = {}, themeContext = {}) {
     .trim()
     .toLowerCase();
   if (profileId) {
-    url.searchParams.set('profile_id', profileId);
-    url.searchParams.set('profile_stage', String(profileContext.profileStage || PROFILE_STAGE));
+    url.searchParams.set('graph_type_id', profileId);
+    url.searchParams.set('graph_type_stage', String(profileContext.profileStage || PROFILE_STAGE));
   }
   if (Number.isFinite(profileContext.profileVersion) && Number(profileContext.profileVersion) > 0) {
-    url.searchParams.set('profile_version', String(Number(profileContext.profileVersion)));
+    url.searchParams.set('graph_type_version', String(Number(profileContext.profileVersion)));
   }
   const themeId = String(themeContext.themeId || '')
     .trim()
@@ -1217,11 +1221,14 @@ function buildRenderEndpoint(profileContext = {}, themeContext = {}) {
 function resolveProfileSummaryFromHeaders(headers, fallback = {}) {
   const fallbackSummary = normalizeProfileSummary(fallback);
   const profileId =
-    String(headers.get('x-graphapi-profile-id') || '')
+    String(headers.get('x-graphapi-graph-type-id') || '')
       .trim()
       .toLowerCase() || fallbackSummary.profileId;
-  const profileVersion = toPositiveInt(headers.get('x-graphapi-profile-version')) || fallbackSummary.profileVersion;
-  const checksum = String(headers.get('x-graphapi-profile-checksum') || '').trim() || fallbackSummary.checksum;
+  const profileVersion =
+    toPositiveInt(headers.get('x-graphapi-graph-type-version')) || fallbackSummary.profileVersion;
+  const checksum = String(headers.get('x-graphapi-graph-type-checksum') || '').trim() || fallbackSummary.checksum;
+  const runtimeChecksum =
+    String(headers.get('x-graphapi-graph-type-runtime-checksum') || '').trim() || fallbackSummary.runtimeChecksum;
   const iconsetResolutionChecksum =
     String(headers.get('x-graphapi-iconset-resolution-checksum') || '').trim() ||
     fallbackSummary.iconsetResolutionChecksum;
@@ -1233,6 +1240,7 @@ function resolveProfileSummaryFromHeaders(headers, fallback = {}) {
     profileId,
     profileVersion,
     checksum,
+    runtimeChecksum,
     iconsetResolutionChecksum,
     iconsetSources,
   };
@@ -1486,6 +1494,7 @@ export default function App() {
     profileId: '',
     profileVersion: null,
     checksum: '',
+    runtimeChecksum: '',
     iconsetResolutionChecksum: '',
     iconsetSources: [],
   });
@@ -1498,6 +1507,7 @@ export default function App() {
     profileId: '',
     profileVersion: null,
     checksum: '',
+    runtimeChecksum: '',
     iconsetResolutionChecksum: '',
     iconsetSources: [],
   });
@@ -1538,18 +1548,18 @@ export default function App() {
 
     async function loadProfiles() {
       try {
-        const response = await fetch(`${API_BASE}/v1/profiles`);
+        const response = await fetch(`${API_BASE}/v1/graph-types`);
         if (!response.ok) {
-          throw new Error(`Profile list request failed with ${response.status}`);
+          throw new Error(`Graph type list request failed with ${response.status}`);
         }
         const body = await response.json();
         if (cancelled) {
           return;
         }
-        const nextProfiles = Array.isArray(body?.profiles)
-          ? body.profiles
+        const nextProfiles = Array.isArray(body?.graphTypes)
+          ? body.graphTypes
               .map((item) => ({
-                profileId: String(item?.profileId || '')
+                profileId: String(item?.graphTypeId || '')
                   .trim()
                   .toLowerCase(),
                 name: String(item?.name || ''),
@@ -1566,7 +1576,7 @@ export default function App() {
         }
         setProfiles([]);
         setActiveProfileId('');
-        setProfilesError(err?.message || 'Failed to load profiles.');
+        setProfilesError(err?.message || 'Failed to load graph types.');
       }
     }
 
@@ -1624,6 +1634,7 @@ export default function App() {
         profileId: '',
         profileVersion: null,
         checksum: '',
+        runtimeChecksum: '',
         iconsetResolutionChecksum: '',
         iconsetSources: [],
       });
@@ -1636,13 +1647,13 @@ export default function App() {
     async function loadActiveProfileCatalog() {
       try {
         const url = new URL(`${API_BASE}/v1/autocomplete/catalog`, window.location.origin);
-        url.searchParams.set('profile_id', activeProfileId);
+        url.searchParams.set('graph_type_id', activeProfileId);
         url.searchParams.set('stage', PROFILE_STAGE);
         const response = await fetch(`${url.pathname}${url.search}`, {
           signal: controller.signal,
         });
         if (!response.ok) {
-          throw new Error(`Profile catalog request failed with ${response.status}`);
+          throw new Error(`Graph type catalog request failed with ${response.status}`);
         }
         const body = await response.json();
         if (cancelled) {
@@ -1658,11 +1669,12 @@ export default function App() {
           profileId: activeProfileId,
           profileVersion: null,
           checksum: '',
+          runtimeChecksum: '',
           iconsetResolutionChecksum: '',
           iconsetSources: [],
         });
         setProfileCatalogWarning(
-          `Profile catalog unavailable for '${activeProfileId}': ${err?.message || 'request failed'}`
+          `Graph type catalog unavailable for '${activeProfileId}': ${err?.message || 'request failed'}`
         );
       }
     }
@@ -1685,12 +1697,12 @@ export default function App() {
     async function loadIconsetResolution() {
       try {
         const url = new URL(
-          `${API_BASE}/v1/profiles/${encodeURIComponent(activeProfileId)}/iconset-resolution`,
+          `${API_BASE}/v1/graph-types/${encodeURIComponent(activeProfileId)}/runtime`,
           window.location.origin
         );
         url.searchParams.set('stage', PROFILE_STAGE);
         if (Number.isFinite(activeProfileSummary.profileVersion) && Number(activeProfileSummary.profileVersion) > 0) {
-          url.searchParams.set('profile_version', String(Number(activeProfileSummary.profileVersion)));
+          url.searchParams.set('graph_type_version', String(Number(activeProfileSummary.profileVersion)));
         }
         const response = await fetch(`${url.pathname}${url.search}`, {
           signal: controller.signal,
