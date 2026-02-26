@@ -1258,6 +1258,22 @@ async function delayWithAbort(ms, signal) {
   });
 }
 
+function resolveAbsoluteApiBase(baseUrl) {
+  const normalizedBaseUrl = String(baseUrl || '').replace(/\/+$/, '');
+  if (!normalizedBaseUrl) {
+    return '';
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    try {
+      const resolved = new URL(normalizedBaseUrl, window.location.origin);
+      return `${resolved.origin}${resolved.pathname}`.replace(/\/+$/, '');
+    } catch (_err) {
+      // Fall back to raw base URL.
+    }
+  }
+  return normalizedBaseUrl;
+}
+
 function buildRenderEndpoint(profileContext = {}) {
   const url = new URL(`${API_BASE}/render/svg`, window.location.origin);
   const profileId = String(profileContext.profileId || '')
@@ -1536,6 +1552,7 @@ export default function App() {
   const documentStateRef = useRef(null);
   const renderCacheRef = useRef(new Map());
   const profileCatalogCacheRef = useRef(new Map());
+  const profileApiBaseUrl = useMemo(() => resolveAbsoluteApiBase(API_BASE), []);
 
   const debounceMs = useMemo(() => computeDebounceMs(yamlText), [yamlText]);
   const documentState = useMemo(() => analyzeYamlDocument(yamlText, validateFn), [yamlText, validateFn]);
@@ -1894,7 +1911,7 @@ export default function App() {
           computeIndentBackspaceDeleteCount={coreComputeIndentBackspaceDeleteCount}
           indentSize={INDENT_SIZE}
           profileId={activeProfileId}
-          profileApiBaseUrl={API_BASE}
+          profileApiBaseUrl={profileApiBaseUrl}
           profileStage={PROFILE_STAGE}
           profileVersion={activeProfileSummary.profileVersion}
           profileChecksum={activeProfileSummary.checksum}
