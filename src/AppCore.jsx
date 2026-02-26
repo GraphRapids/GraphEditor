@@ -4,18 +4,6 @@ import YAML from 'js-yaml';
 import Ajv2020 from 'ajv/dist/2020';
 import GraphYamlEditor from '@graphrapids/graph-yaml-editor';
 import GraphView from '@graphrapids/graph-view';
-import {
-  buildAutocompleteMetadata as coreBuildAutocompleteMetadata,
-  buildAutocompleteRuntimeFromMeta as coreBuildAutocompleteRuntimeFromMeta,
-  buildCompletionDocumentation as coreBuildCompletionDocumentation,
-  collectRootSectionPresence as coreCollectRootSectionPresence,
-  computeIndentBackspaceDeleteCount as coreComputeIndentBackspaceDeleteCount,
-  getYamlAutocompleteContext as coreGetYamlAutocompleteContext,
-  getYamlAutocompleteSuggestions as coreGetYamlAutocompleteSuggestions,
-  inferYamlSection as coreInferYamlSection,
-  isRootBoundaryEmptyLine as coreIsRootBoundaryEmptyLine,
-  lineIndent as coreLineIndent,
-} from '@graphrapids/graph-autocomplete-core';
 
 const API_BASE = '/api';
 const PROFILE_STAGE = 'published';
@@ -1761,16 +1749,6 @@ export default function App() {
           linkTypeSuggestionsRef={linkTypeSuggestionsRef}
           autocompleteSpecRef={autocompleteSpecRef}
           markerFromDiagnostic={markerFromDiagnostic}
-          collectRootSectionPresence={coreCollectRootSectionPresence}
-          buildAutocompleteMetadata={coreBuildAutocompleteMetadata}
-          buildAutocompleteRuntimeFromMeta={coreBuildAutocompleteRuntimeFromMeta}
-          getYamlAutocompleteSuggestions={coreGetYamlAutocompleteSuggestions}
-          lineIndent={coreLineIndent}
-          inferYamlSection={coreInferYamlSection}
-          buildCompletionDocumentation={coreBuildCompletionDocumentation}
-          getYamlAutocompleteContext={coreGetYamlAutocompleteContext}
-          isRootBoundaryEmptyLine={coreIsRootBoundaryEmptyLine}
-          computeIndentBackspaceDeleteCount={coreComputeIndentBackspaceDeleteCount}
           indentSize={INDENT_SIZE}
           profileId={activeProfileId}
           profileApiBaseUrl={profileApiBaseUrl}
