@@ -56,7 +56,41 @@ async function mockApi(page: Page) {
     });
   });
 
-  await page.route('**/api/render/svg', async (route) => {
+  await page.route('**/api/v1/profiles', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        profiles: [
+          {
+            profileId: 'default',
+            name: 'Default Runtime Profile',
+            draftVersion: 1,
+            publishedVersion: 1,
+            checksum: 'abc',
+            updatedAt: '2026-02-26T00:00:00Z',
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route('**/api/v1/autocomplete/catalog**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schemaVersion: 'v1',
+        profileId: 'default',
+        profileVersion: 1,
+        checksum: 'abc',
+        nodeTypes: ['router', 'switch'],
+        linkTypes: ['directed', 'undirected'],
+      }),
+    });
+  });
+
+  await page.route('**/api/render/svg**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'image/svg+xml',

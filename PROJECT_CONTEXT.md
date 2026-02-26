@@ -1,13 +1,14 @@
 # GraphEditor - Project Context
 
 ## Purpose
-GraphEditor is the GraphRapids web application for authoring graph YAML and previewing rendered SVG output.
+GraphEditor is the GraphRapids web application playground for authoring graph YAML and previewing rendered SVG output against the canonical GraphAPI profile runtime.
 
 ## Primary Goals
 - Fast, schema-aware YAML authoring workflow.
 - Predictable, step-by-step autocomplete behavior.
 - Low-latency live rendering with request debouncing and cancellation.
 - Clear error handling without blocking editing.
+- Keep active runtime profile consistent across autocomplete and render calls.
 
 ## System Snapshot
 - Frontend: React + Vite.
@@ -16,12 +17,14 @@ GraphEditor is the GraphRapids web application for authoring graph YAML and prev
 - Viewer: `@graphrapids/graph-view`.
 - Validation: YAML parse + JSON schema validation (AJV).
 - Render backend: GraphAPI (`/api/render/svg`) behind Vite proxy.
+- Profile runtime backend: GraphAPI (`/api/v1/profiles`, `/api/v1/autocomplete/catalog`).
 
 ## Runtime Configuration
 - `GRAPHEDITOR_HOST`
 - `GRAPHEDITOR_PORT`
 - `GRAPHAPI_HOST`
 - `GRAPHAPI_PORT`
+- `VITE_GRAPHEDITOR_PROFILE_ID`
 
 ## Architecture Notes
 - `src/AppCore.jsx`:
@@ -54,6 +57,7 @@ When behavior changes:
 - Render requests are debounced and abortable.
 - Out-of-order responses must not overwrite newer previews.
 - Keep last known good SVG visible on render failures.
+- Include profile id/version/checksum in render cache identity.
 
 ## Safety Rules
 - Do not inject raw SVG with `dangerouslySetInnerHTML`.

@@ -73,6 +73,34 @@ body {
   font-size: 0.9rem;
 }
 
+.profile-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.profile-row label {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.profile-row select {
+  min-width: 180px;
+  border: 1px solid var(--line);
+  background: var(--editor-bg);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.82rem;
+}
+
+.profile-warning {
+  margin-top: 0.45rem;
+  color: var(--danger);
+  font-size: 0.78rem;
+}
+
 .editor-shell {
   margin-top: 0.75rem;
   width: 100%;

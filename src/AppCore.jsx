@@ -18,6 +18,8 @@ import {
 } from '@graphrapids/graph-autocomplete-core';
 
 const API_BASE = '/api';
+const PROFILE_STAGE = 'published';
+const DEFAULT_PROFILE_ID = String(import.meta.env.VITE_GRAPHEDITOR_PROFILE_ID || 'default').trim().toLowerCase();
 const MIN_DEBOUNCE_MS = 170;
 const MAX_DEBOUNCE_MS = 380;
 const RETRY_DELAY_MS = 180;
@@ -153,6 +155,34 @@ class RenderApiError extends Error {
     this.status = status;
     this.retryable = retryable;
   }
+}
+
+function toPositiveInt(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizeProfileSummary(raw = {}) {
+  const profileId = String(raw.profileId || '')
+    .trim()
+    .toLowerCase();
+  const profileVersion = toPositiveInt(raw.profileVersion);
+  const checksum = String(raw.checksum || '').trim();
+  return {
+    profileId,
+    profileVersion,
+    checksum,
+  };
+}
+
+function resolveSelectedProfileId(profiles = [], preferred = '') {
+  const normalizedPreferred = String(preferred || '')
+    .trim()
+    .toLowerCase();
+  if (normalizedPreferred && profiles.some((item) => item.profileId === normalizedPreferred)) {
+    return normalizedPreferred;
+  }
+  return profiles[0]?.profileId || '';
 }
 
 export function formatAjvErrors(errors = []) {
@@ -1228,10 +1258,42 @@ async function delayWithAbort(ms, signal) {
   });
 }
 
-async function requestSvgRender(payload, signal) {
+function buildRenderEndpoint(profileContext = {}) {
+  const url = new URL(`${API_BASE}/render/svg`, window.location.origin);
+  const profileId = String(profileContext.profileId || '')
+    .trim()
+    .toLowerCase();
+  if (profileId) {
+    url.searchParams.set('profile_id', profileId);
+    url.searchParams.set('profile_stage', String(profileContext.profileStage || PROFILE_STAGE));
+  }
+  if (Number.isFinite(profileContext.profileVersion) && Number(profileContext.profileVersion) > 0) {
+    url.searchParams.set('profile_version', String(Number(profileContext.profileVersion)));
+  }
+  return `${url.pathname}${url.search}`;
+}
+
+function resolveProfileSummaryFromHeaders(headers, fallback = {}) {
+  const fallbackSummary = normalizeProfileSummary(fallback);
+  const profileId =
+    String(headers.get('x-graphapi-profile-id') || '')
+      .trim()
+      .toLowerCase() || fallbackSummary.profileId;
+  const profileVersion = toPositiveInt(headers.get('x-graphapi-profile-version')) || fallbackSummary.profileVersion;
+  const checksum = String(headers.get('x-graphapi-profile-checksum') || '').trim() || fallbackSummary.checksum;
+  return {
+    profileId,
+    profileVersion,
+    checksum,
+  };
+}
+
+async function requestSvgRender(payload, signal, profileContext = {}) {
+  const endpoint = buildRenderEndpoint(profileContext);
+  const fallbackProfileSummary = normalizeProfileSummary(profileContext);
   for (let attempt = 0; attempt <= MAX_RENDER_RETRIES; attempt += 1) {
     try {
-      const response = await fetch(`${API_BASE}/render/svg`, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1263,7 +1325,10 @@ async function requestSvgRender(payload, signal) {
       if (!nextSvg) {
         throw new RenderApiError('response', 'Render response did not contain SVG.', response.status, false);
       }
-      return nextSvg;
+      return {
+        svgText: nextSvg,
+        profileSummary: resolveProfileSummaryFromHeaders(response.headers, fallbackProfileSummary),
+      };
     } catch (err) {
       if (err?.name === 'AbortError') {
         throw err;
@@ -1443,6 +1508,20 @@ export default function App() {
   const [svgText, setSvgText] = useState('');
   const [status, setStatus] = useState('Loading schema...');
   const [renderError, setRenderError] = useState('');
+  const [profilesError, setProfilesError] = useState('');
+  const [profileCatalogWarning, setProfileCatalogWarning] = useState('');
+  const [profiles, setProfiles] = useState([]);
+  const [activeProfileId, setActiveProfileId] = useState('');
+  const [activeProfileSummary, setActiveProfileSummary] = useState({
+    profileId: '',
+    profileVersion: null,
+    checksum: '',
+  });
+  const [activeRenderProfileSummary, setActiveRenderProfileSummary] = useState({
+    profileId: '',
+    profileVersion: null,
+    checksum: '',
+  });
   const [theme, setTheme] = useState('light');
 
   const debounceRef = useRef(null);
@@ -1456,6 +1535,7 @@ export default function App() {
   const completionMetaCacheRef = useRef(EMPTY_COMPLETION_META_CACHE);
   const documentStateRef = useRef(null);
   const renderCacheRef = useRef(new Map());
+  const profileCatalogCacheRef = useRef(new Map());
 
   const debounceMs = useMemo(() => computeDebounceMs(yamlText), [yamlText]);
   const documentState = useMemo(() => analyzeYamlDocument(yamlText, validateFn), [yamlText, validateFn]);
@@ -1467,6 +1547,101 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProfiles() {
+      try {
+        const response = await fetch(`${API_BASE}/v1/profiles`);
+        if (!response.ok) {
+          throw new Error(`Profile list request failed with ${response.status}`);
+        }
+        const body = await response.json();
+        if (cancelled) {
+          return;
+        }
+        const nextProfiles = Array.isArray(body?.profiles)
+          ? body.profiles
+              .map((item) => ({
+                profileId: String(item?.profileId || '')
+                  .trim()
+                  .toLowerCase(),
+                name: String(item?.name || ''),
+              }))
+              .filter((item) => item.profileId)
+          : [];
+
+        setProfiles(nextProfiles);
+        setProfilesError('');
+        setActiveProfileId((current) => resolveSelectedProfileId(nextProfiles, current || DEFAULT_PROFILE_ID));
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        setProfiles([]);
+        setActiveProfileId('');
+        setProfilesError(err?.message || 'Failed to load profiles.');
+      }
+    }
+
+    loadProfiles();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeProfileId) {
+      setActiveProfileSummary({
+        profileId: '',
+        profileVersion: null,
+        checksum: '',
+      });
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    async function loadActiveProfileCatalog() {
+      try {
+        const url = new URL(`${API_BASE}/v1/autocomplete/catalog`, window.location.origin);
+        url.searchParams.set('profile_id', activeProfileId);
+        url.searchParams.set('stage', PROFILE_STAGE);
+        const response = await fetch(`${url.pathname}${url.search}`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Profile catalog request failed with ${response.status}`);
+        }
+        const body = await response.json();
+        if (cancelled) {
+          return;
+        }
+        setActiveProfileSummary(normalizeProfileSummary(body));
+        setProfileCatalogWarning('');
+      } catch (err) {
+        if (cancelled || err?.name === 'AbortError') {
+          return;
+        }
+        setActiveProfileSummary({
+          profileId: activeProfileId,
+          profileVersion: null,
+          checksum: '',
+        });
+        setProfileCatalogWarning(
+          `Profile catalog unavailable for '${activeProfileId}': ${err?.message || 'request failed'}`
+        );
+      }
+    }
+
+    loadActiveProfileCatalog();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [activeProfileId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1552,12 +1727,26 @@ export default function App() {
     debounceRef.current = setTimeout(async () => {
       const requestId = ++requestIdRef.current;
 
-      const cacheKey = documentState.normalizedHash;
+      const cacheKey = [
+        documentState.normalizedHash,
+        activeProfileSummary.profileId || 'no-profile',
+        activeProfileSummary.profileVersion || 'no-version',
+        activeProfileSummary.checksum || 'no-checksum',
+      ].join('|');
       if (cacheKey && renderCacheRef.current.has(cacheKey)) {
-        setRenderError('');
-        setSvgText(renderCacheRef.current.get(cacheKey));
-        setStatus('Rendered.');
-        return;
+        const cached = renderCacheRef.current.get(cacheKey);
+        const cachedSvg = typeof cached === 'string' ? cached : cached?.svgText;
+        const cachedProfileSummary =
+          typeof cached === 'string' ? normalizeProfileSummary(activeProfileSummary) : cached?.profileSummary;
+        if (!cachedSvg) {
+          renderCacheRef.current.delete(cacheKey);
+        } else {
+          setActiveRenderProfileSummary(cachedProfileSummary || normalizeProfileSummary(activeProfileSummary));
+          setRenderError('');
+          setSvgText(cachedSvg);
+          setStatus('Rendered.');
+          return;
+        }
       }
 
       if (abortRef.current) {
@@ -1569,15 +1758,26 @@ export default function App() {
       setRenderError('');
       setStatus('Rendering SVG...');
 
+      const profileContext = activeProfileId
+        ? {
+            profileId: activeProfileId,
+            profileStage: PROFILE_STAGE,
+            profileVersion: activeProfileSummary.profileVersion,
+            checksum: activeProfileSummary.checksum,
+          }
+        : {};
+
       try {
-        const nextSvg = await requestSvgRender(documentState.normalizedGraph, controller.signal);
+        const nextRender = await requestSvgRender(documentState.normalizedGraph, controller.signal, profileContext);
         if (requestId !== requestIdRef.current) {
           return;
         }
         if (cacheKey) {
-          withRenderCacheLimit(renderCacheRef.current, cacheKey, nextSvg);
+          withRenderCacheLimit(renderCacheRef.current, cacheKey, nextRender);
         }
-        setSvgText(nextSvg);
+        setSvgText(nextRender.svgText);
+        setActiveRenderProfileSummary(nextRender.profileSummary || normalizeProfileSummary(profileContext));
+        setRenderError('');
         setStatus('Rendered.');
       } catch (err) {
         if (err?.name === 'AbortError') {
@@ -1597,7 +1797,17 @@ export default function App() {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [schema, schemaError, validateFn, documentState, debounceMs]);
+  }, [
+    schema,
+    schemaError,
+    validateFn,
+    documentState,
+    debounceMs,
+    activeProfileId,
+    activeProfileSummary.profileId,
+    activeProfileSummary.profileVersion,
+    activeProfileSummary.checksum,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -1620,12 +1830,44 @@ export default function App() {
     return documentState.validationErrors;
   }, [schemaError, renderError, documentState.validationErrors]);
 
+  const profileNotice = useMemo(() => {
+    if (profilesError) {
+      return `Profile service unavailable: ${profilesError}`;
+    }
+    if (profileCatalogWarning) {
+      return profileCatalogWarning;
+    }
+    return '';
+  }, [profileCatalogWarning, profilesError]);
+
   return (
     <main className="app">
       <section className="pane pane-left">
         <div className="pane-header">
           <h1>GraphEditor</h1>
           <p>YAML input</p>
+          <div className="profile-row">
+            <label htmlFor="profile-select">Profile</label>
+            <select
+              id="profile-select"
+              value={activeProfileId}
+              onChange={(event) => setActiveProfileId(String(event.target.value || ''))}
+              disabled={profiles.length === 0}
+              data-testid="profile-select"
+            >
+              {profiles.length === 0 ? <option value="">No profiles</option> : null}
+              {profiles.map((item) => (
+                <option key={item.profileId} value={item.profileId}>
+                  {item.name || item.profileId}
+                </option>
+              ))}
+            </select>
+          </div>
+          {profileNotice ? (
+            <p className="profile-warning" role="status" data-testid="profile-notice">
+              {profileNotice}
+            </p>
+          ) : null}
         </div>
         <GraphYamlEditor
           value={yamlText}
@@ -1651,6 +1893,13 @@ export default function App() {
           isRootBoundaryEmptyLine={coreIsRootBoundaryEmptyLine}
           computeIndentBackspaceDeleteCount={coreComputeIndentBackspaceDeleteCount}
           indentSize={INDENT_SIZE}
+          profileId={activeProfileId}
+          profileApiBaseUrl={API_BASE}
+          profileStage={PROFILE_STAGE}
+          profileVersion={activeProfileSummary.profileVersion}
+          profileChecksum={activeProfileSummary.checksum}
+          profileCatalogCacheRef={profileCatalogCacheRef}
+          onProfileCatalogWarning={setProfileCatalogWarning}
         />
       </section>
 
@@ -1661,6 +1910,10 @@ export default function App() {
           errors={errors}
           theme={theme}
           onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
+          profileId={activeRenderProfileSummary.profileId || activeProfileId}
+          profileVersion={activeRenderProfileSummary.profileVersion}
+          profileChecksum={activeRenderProfileSummary.checksum}
+          profileStage={PROFILE_STAGE}
         />
       </section>
     </main>

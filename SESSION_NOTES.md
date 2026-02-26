@@ -14,6 +14,31 @@ Use this file as a running log between work sessions.
 
 ## Current
 
+### 2026-02-26
+- Summary: Adapted GraphEditor to the profile-driven runtime design (GraphAPI canonical profiles).
+- Changes:
+  - Added profile discovery and active profile selection (`/api/v1/profiles`).
+  - Added active catalog resolution (`/api/v1/autocomplete/catalog`) and passed profile hints to `GraphYamlEditor`.
+  - Updated render requests to include `profile_id`/`profile_stage`/`profile_version`.
+  - Captured profile headers from render responses and surfaced profile metadata in `GraphView`.
+  - Updated render cache identity to include profile id/version/checksum.
+  - Added/updated tests and e2e API mocks for profile endpoints.
+- Files touched:
+  - `src/AppCore.jsx`
+  - `src/App.test.jsx`
+  - `src/styles.css`
+  - `e2e/autocomplete.behavior.spec.ts`
+  - `.env.example`
+  - `README.md`
+  - `PROJECT_CONTEXT.md`
+  - `SESSION_NOTES.md`
+- Tests run:
+  - pending in this session (run with `npm run test`, `npm run test:e2e`, `npm run build`)
+- Known issues:
+  - Legacy duplicate autocomplete helper code remains in `AppCore.jsx`.
+- Next steps:
+  - Remove remaining duplicate autocomplete helper code and rely only on package APIs.
+
 ### 2026-02-25 (GraphAutocompleteCore wiring)
 - Summary: Wired GraphEditor autocomplete callbacks to shared GraphAutocompleteCore package.
 - Changes:

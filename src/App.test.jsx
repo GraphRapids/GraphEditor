@@ -249,7 +249,31 @@ function installFetchMock(renderHandler) {
     if (url.endsWith('/api/schemas/minimal-input.schema.json')) {
       return jsonResponse(MINIMAL_SCHEMA);
     }
-    if (url.endsWith('/api/render/svg')) {
+    if (url.includes('/api/v1/profiles')) {
+      return jsonResponse({
+        profiles: [
+          {
+            profileId: 'default',
+            name: 'Default Runtime Profile',
+            draftVersion: 1,
+            publishedVersion: 1,
+            checksum: 'abc',
+            updatedAt: '2026-02-26T00:00:00Z',
+          },
+        ],
+      });
+    }
+    if (url.includes('/api/v1/autocomplete/catalog')) {
+      return jsonResponse({
+        schemaVersion: 'v1',
+        profileId: 'default',
+        profileVersion: 1,
+        checksum: 'abc',
+        nodeTypes: ['router', 'switch'],
+        linkTypes: ['directed', 'undirected'],
+      });
+    }
+    if (url.includes('/api/render/svg')) {
       return renderHandler(url, init);
     }
     return new Response('Not found', { status: 404 });
@@ -265,7 +289,7 @@ async function flushDebounce() {
 }
 
 function countRenderCalls(fetchMock) {
-  return fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/render/svg')).length;
+  return fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/render/svg')).length;
 }
 
 describe('App', () => {
@@ -302,6 +326,35 @@ describe('App', () => {
     expect(countRenderCalls(fetchMock)).toBe(1);
     expect(screen.getByRole('button', { name: /download svg/i })).toBeEnabled();
     await waitFor(() => expect(fitToViewerSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it('renders using active profile id/version and shows profile summary in preview', async () => {
+    let renderRequestUrl = '';
+    const fetchMock = installFetchMock(async (url) => {
+      renderRequestUrl = url;
+      return new Response('<svg width="100" height="50"><rect width="100" height="50"/></svg>', {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/svg+xml',
+          'X-GraphAPI-Profile-Id': 'default',
+          'X-GraphAPI-Profile-Version': '1',
+          'X-GraphAPI-Profile-Checksum': '0123456789abcdef',
+        },
+      });
+    });
+
+    render(<App />);
+    await flushDebounce();
+
+    await waitFor(() => expect(screen.getByText('Rendered.')).toBeInTheDocument());
+    expect(renderRequestUrl).toContain('/api/render/svg?');
+    expect(renderRequestUrl).toContain('profile_id=default');
+    expect(renderRequestUrl).toContain('profile_stage=published');
+    expect(renderRequestUrl).toContain('profile_version=1');
+    expect(screen.getByTestId('profile-meta').textContent).toContain('Profile: default');
+    expect(screen.getByTestId('profile-meta').textContent).toContain('v1');
+
+    expect(countRenderCalls(fetchMock)).toBeGreaterThanOrEqual(1);
   });
 
   it('blocks render requests when schema validation fails', async () => {
@@ -521,12 +574,12 @@ describe('App', () => {
     });
 
     expect(preventDefault).toHaveBeenCalled();
-    expect(executeEditsSpy).toHaveBeenCalledWith('root-boundary-backspace', [
+    expect(executeEditsSpy).toHaveBeenCalledWith('indent-backspace', [
       expect.objectContaining({
         text: '',
       }),
     ]);
-    expect(editorTriggerSpy).toHaveBeenCalledWith('backspace-root-boundary', 'editor.action.triggerSuggest', {});
+    expect(editorTriggerSpy).toHaveBeenCalledWith('backspace', 'editor.action.triggerSuggest', {});
   });
 
   it('inserts `to:` on Enter after `from` value when no port suffix is selected', async () => {
@@ -825,7 +878,7 @@ describe('App', () => {
     );
     const nestedNodesSuggestion = nestedNodesKeyResult.suggestions.find((item) => item.label === 'nodes');
     expect(nestedNodesSuggestion).toBeTruthy();
-    expect(nestedNodesSuggestion.insertText).toBe('nodes:\n      - name: ');
+    expect(nestedNodesSuggestion.insertText).toBe('nodes:\n  - name: ');
 
     const nestedLinksKeyResult = provider.provideCompletionItems(
       {
@@ -836,7 +889,7 @@ describe('App', () => {
     );
     const nestedLinksSuggestion = nestedLinksKeyResult.suggestions.find((item) => item.label === 'links');
     expect(nestedLinksSuggestion).toBeTruthy();
-    expect(nestedLinksSuggestion.insertText).toBe('links:\n      - from: ');
+    expect(nestedLinksSuggestion.insertText).toBe('links:\n  - from: ');
 
     const nextNodeAfterTypeResult = provider.provideCompletionItems(
       {

@@ -7,6 +7,8 @@
 
 GraphEditor is a React web app for authoring graph YAML and previewing rendered SVG from GraphAPI.
 
+It is a playground client for the GraphRapids runtime profile architecture; GraphAPI remains the canonical runtime service.
+
 ## Current Capabilities
 
 - Monaco YAML editing via reusable `@graphrapids/graph-yaml-editor`
@@ -14,6 +16,8 @@ GraphEditor is a React web app for authoring graph YAML and previewing rendered 
 - Step-by-step, schema-aware autocomplete for graph authoring
 - YAML syntax + JSON schema validation with Monaco markers
 - Debounced/abortable render pipeline with stale-response protection
+- Runtime profile selection from GraphAPI (`/v1/profiles`)
+- Profile-driven autocomplete/render coherence via `profile_id`
 - Interactive SVG pan/zoom preview
 - Light/dark mode and SVG download
 
@@ -64,6 +68,7 @@ GRAPHEDITOR_HOST=127.0.0.1
 GRAPHEDITOR_PORT=9000
 GRAPHAPI_HOST=127.0.0.1
 GRAPHAPI_PORT=8000
+VITE_GRAPHEDITOR_PROFILE_ID=default
 ```
 
 `vite.config.js` uses these for:
@@ -88,7 +93,9 @@ npm run test:e2e:headed
 Via `/api` proxy:
 
 - `GET /api/schemas/minimal-input.schema.json`
-- `POST /api/render/svg`
+- `GET /api/v1/profiles`
+- `GET /api/v1/autocomplete/catalog?profile_id=...`
+- `POST /api/render/svg?profile_id=...`
 
 ## Autocomplete Behavior (Current)
 
@@ -120,7 +127,8 @@ Behavior contract file:
 3. Debounce render request (`170-380ms`, size-aware).
 4. Abort stale in-flight requests.
 5. Reject out-of-order responses using request IDs.
-6. Cache successful render output by normalized content hash.
+6. Cache successful render output by normalized content hash + profile version/checksum.
+7. Display profile id/version/checksum from GraphAPI response headers.
 
 Error handling:
 
