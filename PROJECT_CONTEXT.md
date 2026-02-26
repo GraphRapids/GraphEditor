@@ -1,14 +1,14 @@
 # GraphEditor - Project Context
 
 ## Purpose
-GraphEditor is the GraphRapids web application playground for authoring graph YAML and previewing rendered SVG output against the canonical GraphAPI profile runtime.
+GraphEditor is the GraphRapids web application playground for authoring graph YAML and previewing rendered SVG output against the canonical GraphAPI runtime (layout profiles + render themes).
 
 ## Primary Goals
 - Fast, schema-aware YAML authoring workflow.
 - Predictable, step-by-step autocomplete behavior.
 - Low-latency live rendering with request debouncing and cancellation.
 - Clear error handling without blocking editing.
-- Keep active runtime profile consistent across autocomplete and render calls.
+- Keep active runtime profile (layout/catalog) and theme (render CSS) consistent across API calls.
 
 ## System Snapshot
 - Frontend: React + Vite.
@@ -18,6 +18,7 @@ GraphEditor is the GraphRapids web application playground for authoring graph YA
 - Validation: YAML parse + JSON schema validation (AJV).
 - Render backend: GraphAPI (`/api/render/svg`) behind Vite proxy.
 - Profile runtime backend: GraphAPI (`/api/v1/profiles`, `/api/v1/autocomplete/catalog`).
+- Theme runtime backend: GraphAPI (`/api/v1/themes`).
 
 ## Runtime Configuration
 - `GRAPHEDITOR_HOST`
@@ -25,6 +26,7 @@ GraphEditor is the GraphRapids web application playground for authoring graph YA
 - `GRAPHAPI_HOST`
 - `GRAPHAPI_PORT`
 - `VITE_GRAPHEDITOR_PROFILE_ID`
+- `VITE_GRAPHEDITOR_THEME_ID`
 
 ## Architecture Notes
 - `src/AppCore.jsx`:
@@ -47,7 +49,7 @@ When behavior changes:
 ## Current Behavior Guardrails
 - Root suggestions only for missing sections (`nodes`, `links`).
 - No value suggestions for `name` and `label`.
-- `type` values are suggested from schema/domain options.
+- `type` values are suggested from active profile catalog options.
 - Link endpoint values (`from`, `to`) suggest known node names.
 - Recursive behavior applies for nested `nodes`/`links`.
 
@@ -57,7 +59,7 @@ When behavior changes:
 - Render requests are debounced and abortable.
 - Out-of-order responses must not overwrite newer previews.
 - Keep last known good SVG visible on render failures.
-- Include profile id/version/checksum in render cache identity.
+- Include profile + theme id/version/checksum in render cache identity.
 
 ## Safety Rules
 - Do not inject raw SVG with `dangerouslySetInnerHTML`.

@@ -75,6 +75,41 @@ async function mockApi(page: Page) {
     });
   });
 
+  await page.route('**/api/v1/themes/default/bundle**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schemaVersion: 'v1',
+        themeId: 'default',
+        themeVersion: 1,
+        name: 'Default Render Theme',
+        renderCss: '.node.router > rect { fill: #334455; }',
+        checksum: 'def',
+        updatedAt: '2026-02-26T00:00:00Z',
+      }),
+    });
+  });
+
+  await page.route('**/api/v1/themes', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        themes: [
+          {
+            themeId: 'default',
+            name: 'Default Render Theme',
+            draftVersion: 1,
+            publishedVersion: 1,
+            checksum: 'def',
+            updatedAt: '2026-02-26T00:00:00Z',
+          },
+        ],
+      }),
+    });
+  });
+
   await page.route('**/api/v1/autocomplete/catalog**', async (route) => {
     await route.fulfill({
       status: 200,

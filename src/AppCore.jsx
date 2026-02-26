@@ -7,7 +7,9 @@ import GraphView from '@graphrapids/graph-view';
 
 const API_BASE = '/api';
 const PROFILE_STAGE = 'published';
+const THEME_STAGE = 'published';
 const DEFAULT_PROFILE_ID = String(import.meta.env.VITE_GRAPHEDITOR_PROFILE_ID || 'default').trim().toLowerCase();
+const DEFAULT_THEME_ID = String(import.meta.env.VITE_GRAPHEDITOR_THEME_ID || 'default').trim().toLowerCase();
 const MIN_DEBOUNCE_MS = 170;
 const MAX_DEBOUNCE_MS = 380;
 const RETRY_DELAY_MS = 180;
@@ -99,6 +101,19 @@ function normalizeProfileSummary(raw = {}) {
   };
 }
 
+function normalizeThemeSummary(raw = {}) {
+  const themeId = String(raw.themeId || '')
+    .trim()
+    .toLowerCase();
+  const themeVersion = toPositiveInt(raw.themeVersion);
+  const checksum = String(raw.checksum || '').trim();
+  return {
+    themeId,
+    themeVersion,
+    checksum,
+  };
+}
+
 function resolveSelectedProfileId(profiles = [], preferred = '') {
   const normalizedPreferred = String(preferred || '')
     .trim()
@@ -107,6 +122,16 @@ function resolveSelectedProfileId(profiles = [], preferred = '') {
     return normalizedPreferred;
   }
   return profiles[0]?.profileId || '';
+}
+
+function resolveSelectedThemeId(themes = [], preferred = '') {
+  const normalizedPreferred = String(preferred || '')
+    .trim()
+    .toLowerCase();
+  if (normalizedPreferred && themes.some((item) => item.themeId === normalizedPreferred)) {
+    return normalizedPreferred;
+  }
+  return themes[0]?.themeId || '';
 }
 
 export function formatAjvErrors(errors = []) {
@@ -1130,7 +1155,7 @@ function resolveAbsoluteApiBase(baseUrl) {
   return normalizedBaseUrl;
 }
 
-function buildRenderEndpoint(profileContext = {}) {
+function buildRenderEndpoint(profileContext = {}, themeContext = {}) {
   const url = new URL(`${API_BASE}/render/svg`, window.location.origin);
   const profileId = String(profileContext.profileId || '')
     .trim()
@@ -1141,6 +1166,16 @@ function buildRenderEndpoint(profileContext = {}) {
   }
   if (Number.isFinite(profileContext.profileVersion) && Number(profileContext.profileVersion) > 0) {
     url.searchParams.set('profile_version', String(Number(profileContext.profileVersion)));
+  }
+  const themeId = String(themeContext.themeId || '')
+    .trim()
+    .toLowerCase();
+  if (themeId) {
+    url.searchParams.set('theme_id', themeId);
+    url.searchParams.set('theme_stage', String(themeContext.themeStage || THEME_STAGE));
+  }
+  if (Number.isFinite(themeContext.themeVersion) && Number(themeContext.themeVersion) > 0) {
+    url.searchParams.set('theme_version', String(Number(themeContext.themeVersion)));
   }
   return `${url.pathname}${url.search}`;
 }
@@ -1160,9 +1195,25 @@ function resolveProfileSummaryFromHeaders(headers, fallback = {}) {
   };
 }
 
-async function requestSvgRender(payload, signal, profileContext = {}) {
-  const endpoint = buildRenderEndpoint(profileContext);
+function resolveThemeSummaryFromHeaders(headers, fallback = {}) {
+  const fallbackSummary = normalizeThemeSummary(fallback);
+  const themeId =
+    String(headers.get('x-graphapi-theme-id') || '')
+      .trim()
+      .toLowerCase() || fallbackSummary.themeId;
+  const themeVersion = toPositiveInt(headers.get('x-graphapi-theme-version')) || fallbackSummary.themeVersion;
+  const checksum = String(headers.get('x-graphapi-theme-checksum') || '').trim() || fallbackSummary.checksum;
+  return {
+    themeId,
+    themeVersion,
+    checksum,
+  };
+}
+
+async function requestSvgRender(payload, signal, profileContext = {}, themeContext = {}) {
+  const endpoint = buildRenderEndpoint(profileContext, themeContext);
   const fallbackProfileSummary = normalizeProfileSummary(profileContext);
+  const fallbackThemeSummary = normalizeThemeSummary(themeContext);
   for (let attempt = 0; attempt <= MAX_RENDER_RETRIES; attempt += 1) {
     try {
       const response = await fetch(endpoint, {
@@ -1200,6 +1251,7 @@ async function requestSvgRender(payload, signal, profileContext = {}) {
       return {
         svgText: nextSvg,
         profileSummary: resolveProfileSummaryFromHeaders(response.headers, fallbackProfileSummary),
+        themeSummary: resolveThemeSummaryFromHeaders(response.headers, fallbackThemeSummary),
       };
     } catch (err) {
       if (err?.name === 'AbortError') {
@@ -1381,17 +1433,30 @@ export default function App() {
   const [status, setStatus] = useState('Loading schema...');
   const [renderError, setRenderError] = useState('');
   const [profilesError, setProfilesError] = useState('');
+  const [themesError, setThemesError] = useState('');
   const [profileCatalogWarning, setProfileCatalogWarning] = useState('');
   const [profiles, setProfiles] = useState([]);
+  const [themes, setThemes] = useState([]);
   const [activeProfileId, setActiveProfileId] = useState('');
+  const [activeThemeId, setActiveThemeId] = useState('');
   const [activeProfileSummary, setActiveProfileSummary] = useState({
     profileId: '',
     profileVersion: null,
     checksum: '',
   });
+  const [activeThemeSummary, setActiveThemeSummary] = useState({
+    themeId: '',
+    themeVersion: null,
+    checksum: '',
+  });
   const [activeRenderProfileSummary, setActiveRenderProfileSummary] = useState({
     profileId: '',
     profileVersion: null,
+    checksum: '',
+  });
+  const [activeRenderThemeSummary, setActiveRenderThemeSummary] = useState({
+    themeId: '',
+    themeVersion: null,
     checksum: '',
   });
   const [theme, setTheme] = useState('light');
@@ -1465,6 +1530,48 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadThemes() {
+      try {
+        const response = await fetch(`${API_BASE}/v1/themes`);
+        if (!response.ok) {
+          throw new Error(`Theme list request failed with ${response.status}`);
+        }
+        const body = await response.json();
+        if (cancelled) {
+          return;
+        }
+        const nextThemes = Array.isArray(body?.themes)
+          ? body.themes
+              .map((item) => ({
+                themeId: String(item?.themeId || '')
+                  .trim()
+                  .toLowerCase(),
+                name: String(item?.name || ''),
+              }))
+              .filter((item) => item.themeId)
+          : [];
+        setThemes(nextThemes);
+        setThemesError('');
+        setActiveThemeId((current) => resolveSelectedThemeId(nextThemes, current || DEFAULT_THEME_ID));
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        setThemes([]);
+        setActiveThemeId('');
+        setThemesError(err?.message || 'Failed to load themes.');
+      }
+    }
+
+    loadThemes();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!activeProfileId) {
       setActiveProfileSummary({
         profileId: '',
@@ -1515,6 +1622,58 @@ export default function App() {
       controller.abort();
     };
   }, [activeProfileId]);
+
+  useEffect(() => {
+    if (!activeThemeId) {
+      setActiveThemeSummary({
+        themeId: '',
+        themeVersion: null,
+        checksum: '',
+      });
+      setActiveRenderThemeSummary({
+        themeId: '',
+        themeVersion: null,
+        checksum: '',
+      });
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    async function loadActiveThemeBundle() {
+      try {
+        const url = new URL(`${API_BASE}/v1/themes/${encodeURIComponent(activeThemeId)}/bundle`, window.location.origin);
+        url.searchParams.set('stage', THEME_STAGE);
+        const response = await fetch(`${url.pathname}${url.search}`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Theme bundle request failed with ${response.status}`);
+        }
+        const body = await response.json();
+        if (cancelled) {
+          return;
+        }
+        setActiveThemeSummary(normalizeThemeSummary(body));
+      } catch (err) {
+        if (cancelled || err?.name === 'AbortError') {
+          return;
+        }
+        setActiveThemeSummary({
+          themeId: activeThemeId,
+          themeVersion: null,
+          checksum: '',
+        });
+      }
+    }
+
+    loadActiveThemeBundle();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [activeThemeId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1599,6 +1758,9 @@ export default function App() {
         activeProfileSummary.profileId || 'no-profile',
         activeProfileSummary.profileVersion || 'no-version',
         activeProfileSummary.checksum || 'no-checksum',
+        activeThemeSummary.themeId || 'no-theme',
+        activeThemeSummary.themeVersion || 'no-theme-version',
+        activeThemeSummary.checksum || 'no-theme-checksum',
       ].join('|');
       if (cacheKey && renderCacheRef.current.has(cacheKey)) {
         const cached = renderCacheRef.current.get(cacheKey);
@@ -1609,6 +1771,10 @@ export default function App() {
           renderCacheRef.current.delete(cacheKey);
         } else {
           setActiveRenderProfileSummary(cachedProfileSummary || normalizeProfileSummary(activeProfileSummary));
+          setActiveRenderThemeSummary(
+            (typeof cached === 'string' ? normalizeThemeSummary(activeThemeSummary) : cached?.themeSummary) ||
+              normalizeThemeSummary(activeThemeSummary)
+          );
           setRenderError('');
           setSvgText(cachedSvg);
           setStatus('Rendered.');
@@ -1633,9 +1799,22 @@ export default function App() {
             checksum: activeProfileSummary.checksum,
           }
         : {};
+      const themeContext = activeThemeId
+        ? {
+            themeId: activeThemeId,
+            themeStage: THEME_STAGE,
+            themeVersion: activeThemeSummary.themeVersion,
+            checksum: activeThemeSummary.checksum,
+          }
+        : {};
 
       try {
-        const nextRender = await requestSvgRender(documentState.normalizedGraph, controller.signal, profileContext);
+        const nextRender = await requestSvgRender(
+          documentState.normalizedGraph,
+          controller.signal,
+          profileContext,
+          themeContext
+        );
         if (requestId !== requestIdRef.current) {
           return;
         }
@@ -1644,6 +1823,7 @@ export default function App() {
         }
         setSvgText(nextRender.svgText);
         setActiveRenderProfileSummary(nextRender.profileSummary || normalizeProfileSummary(profileContext));
+        setActiveRenderThemeSummary(nextRender.themeSummary || normalizeThemeSummary(themeContext));
         setRenderError('');
         setStatus('Rendered.');
       } catch (err) {
@@ -1674,6 +1854,10 @@ export default function App() {
     activeProfileSummary.profileId,
     activeProfileSummary.profileVersion,
     activeProfileSummary.checksum,
+    activeThemeId,
+    activeThemeSummary.themeId,
+    activeThemeSummary.themeVersion,
+    activeThemeSummary.checksum,
   ]);
 
   useEffect(() => {
@@ -1698,14 +1882,18 @@ export default function App() {
   }, [schemaError, renderError, documentState.validationErrors]);
 
   const profileNotice = useMemo(() => {
+    const notices = [];
     if (profilesError) {
-      return `Profile service unavailable: ${profilesError}`;
+      notices.push(`Profile service unavailable: ${profilesError}`);
+    }
+    if (themesError) {
+      notices.push(`Theme service unavailable: ${themesError}`);
     }
     if (profileCatalogWarning) {
-      return profileCatalogWarning;
+      notices.push(profileCatalogWarning);
     }
-    return '';
-  }, [profileCatalogWarning, profilesError]);
+    return notices.join(' | ');
+  }, [profileCatalogWarning, profilesError, themesError]);
 
   return (
     <main className="app">
@@ -1726,6 +1914,23 @@ export default function App() {
               {profiles.map((item) => (
                 <option key={item.profileId} value={item.profileId}>
                   {item.name || item.profileId}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="profile-row">
+            <label htmlFor="theme-select">Theme</label>
+            <select
+              id="theme-select"
+              value={activeThemeId}
+              onChange={(event) => setActiveThemeId(String(event.target.value || ''))}
+              disabled={themes.length === 0}
+              data-testid="theme-select"
+            >
+              {themes.length === 0 ? <option value="">No themes</option> : null}
+              {themes.map((item) => (
+                <option key={item.themeId} value={item.themeId}>
+                  {item.name || item.themeId}
                 </option>
               ))}
             </select>
@@ -1771,6 +1976,10 @@ export default function App() {
           profileVersion={activeRenderProfileSummary.profileVersion}
           profileChecksum={activeRenderProfileSummary.checksum}
           profileStage={PROFILE_STAGE}
+          themeId={activeRenderThemeSummary.themeId || activeThemeId}
+          themeVersion={activeRenderThemeSummary.themeVersion}
+          themeChecksum={activeRenderThemeSummary.checksum}
+          themeStage={THEME_STAGE}
         />
       </section>
     </main>

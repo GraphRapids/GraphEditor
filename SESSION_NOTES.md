@@ -15,6 +15,30 @@ Use this file as a running log between work sessions.
 ## Current
 
 ### 2026-02-26
+- Summary: Added render theme selection and runtime metadata split (profile + theme).
+- Changes:
+  - Added theme discovery/selection from GraphAPI (`/api/v1/themes`).
+  - Added theme bundle resolution for version/checksum (`/api/v1/themes/{id}/bundle`).
+  - Updated render requests to include `theme_id`/`theme_stage`/`theme_version`.
+  - Updated render cache identity and preview metadata to include theme info.
+  - Updated test/e2e API mocks to provide theme endpoints.
+- Files touched:
+  - `src/AppCore.jsx`
+  - `src/App.test.jsx`
+  - `e2e/autocomplete.behavior.spec.ts`
+  - `README.md`
+  - `PROJECT_CONTEXT.md`
+  - `SESSION_NOTES.md`
+- Tests run:
+  - `npm test -- --run` (42 passed)
+  - `npm run test:e2e` (5 passed)
+  - `npm run build`
+- Known issues:
+  - Legacy duplicate autocomplete helper code remains in `AppCore.jsx`.
+- Next steps:
+  - Remove remaining duplicate local autocomplete helper code in favor of shared package APIs only.
+
+### 2026-02-26
 - Summary: Adapted GraphEditor to the profile-driven runtime design (GraphAPI canonical profiles).
 - Changes:
   - Added profile discovery and active profile selection (`/api/v1/profiles`).

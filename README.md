@@ -16,8 +16,9 @@ It is a playground client for the GraphRapids runtime profile architecture; Grap
 - Step-by-step, schema-aware autocomplete for graph authoring
 - YAML syntax + JSON schema validation with Monaco markers
 - Debounced/abortable render pipeline with stale-response protection
-- Runtime profile selection from GraphAPI (`/v1/profiles`)
-- Profile-driven autocomplete/render coherence via `profile_id`
+- Runtime layout profile selection from GraphAPI (`/v1/profiles`)
+- Runtime render theme selection from GraphAPI (`/v1/themes`)
+- Profile-driven autocomplete and profile+theme-driven rendering coherence
 - Interactive SVG pan/zoom preview
 - Light/dark mode and SVG download
 
@@ -69,6 +70,7 @@ GRAPHEDITOR_PORT=9000
 GRAPHAPI_HOST=127.0.0.1
 GRAPHAPI_PORT=8000
 VITE_GRAPHEDITOR_PROFILE_ID=default
+VITE_GRAPHEDITOR_THEME_ID=default
 ```
 
 `vite.config.js` uses these for:
@@ -94,8 +96,9 @@ Via `/api` proxy:
 
 - `GET /api/schemas/minimal-input.schema.json`
 - `GET /api/v1/profiles`
+- `GET /api/v1/themes`
 - `GET /api/v1/autocomplete/catalog?profile_id=...`
-- `POST /api/render/svg?profile_id=...`
+- `POST /api/render/svg?profile_id=...&theme_id=...`
 
 ## Autocomplete Behavior (Current)
 
@@ -113,7 +116,7 @@ Via `/api` proxy:
   - Exact node match in endpoint value suggests `:` for optional port suffix
 - Value policy:
   - No suggestions for `name` and `label` values
-  - `type` values come from schema/built-in registries
+  - `type` values come from active runtime profile catalog
   - `id` is excluded from key suggestions
 
 Behavior contract file:
@@ -127,8 +130,8 @@ Behavior contract file:
 3. Debounce render request (`170-380ms`, size-aware).
 4. Abort stale in-flight requests.
 5. Reject out-of-order responses using request IDs.
-6. Cache successful render output by normalized content hash + profile version/checksum.
-7. Display profile id/version/checksum from GraphAPI response headers.
+6. Cache successful render output by normalized content hash + profile/theme version/checksum.
+7. Display profile + theme metadata from GraphAPI response headers.
 
 Error handling:
 

@@ -248,6 +248,31 @@ function installFetchMock(renderHandler) {
     if (url.endsWith('/api/schemas/minimal-input.schema.json')) {
       return jsonResponse(MINIMAL_SCHEMA);
     }
+    if (url.includes('/api/v1/themes/default/bundle')) {
+      return jsonResponse({
+        schemaVersion: 'v1',
+        themeId: 'default',
+        themeVersion: 1,
+        name: 'Default Render Theme',
+        renderCss: '.node.router > rect { fill: #334455; }',
+        updatedAt: '2026-02-26T00:00:00Z',
+        checksum: 'def',
+      });
+    }
+    if (url.includes('/api/v1/themes')) {
+      return jsonResponse({
+        themes: [
+          {
+            themeId: 'default',
+            name: 'Default Render Theme',
+            draftVersion: 1,
+            publishedVersion: 1,
+            checksum: 'def',
+            updatedAt: '2026-02-26T00:00:00Z',
+          },
+        ],
+      });
+    }
     if (url.includes('/api/v1/profiles')) {
       return jsonResponse({
         profiles: [
@@ -338,6 +363,9 @@ describe('App', () => {
           'X-GraphAPI-Profile-Id': 'default',
           'X-GraphAPI-Profile-Version': '1',
           'X-GraphAPI-Profile-Checksum': '0123456789abcdef',
+          'X-GraphAPI-Theme-Id': 'default',
+          'X-GraphAPI-Theme-Version': '2',
+          'X-GraphAPI-Theme-Checksum': 'abcdef0123456789',
         },
       });
     });
@@ -350,8 +378,12 @@ describe('App', () => {
     expect(renderRequestUrl).toContain('profile_id=default');
     expect(renderRequestUrl).toContain('profile_stage=published');
     expect(renderRequestUrl).toContain('profile_version=1');
+    expect(renderRequestUrl).toContain('theme_id=default');
+    expect(renderRequestUrl).toContain('theme_stage=published');
+    expect(renderRequestUrl).toContain('theme_version=1');
     expect(screen.getByTestId('profile-meta').textContent).toContain('Profile: default');
     expect(screen.getByTestId('profile-meta').textContent).toContain('v1');
+    expect(screen.getByTestId('profile-meta').textContent).toContain('Theme: default');
 
     expect(countRenderCalls(fetchMock)).toBeGreaterThanOrEqual(1);
   });
