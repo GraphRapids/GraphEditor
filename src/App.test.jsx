@@ -417,6 +417,9 @@ describe('App', () => {
     expect(screen.getByTestId('profile-meta').textContent).toContain('Profile: default');
     expect(screen.getByTestId('profile-meta').textContent).toContain('v1');
     expect(screen.getByTestId('profile-meta').textContent).toContain('Theme: default');
+    expect(screen.getByTestId('profile-meta').textContent).toContain('Iconsets');
+    expect(screen.getByTestId('profile-meta').textContent).toContain('default@1');
+    expect(screen.getByTestId('profile-meta').textContent).toContain('111111111111');
     expect(screen.getByTestId('profile-icon_sets').textContent).toContain('Icon Sets');
     expect(screen.getByTestId('profile-icon_sets').textContent).toContain('default@1');
 
