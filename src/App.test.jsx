@@ -392,13 +392,13 @@ describe('App', () => {
           'Content-Type': 'image/svg+xml',
           'X-GraphAPI-Graph-Type-Id': 'default',
           'X-GraphAPI-Graph-Type-Version': '1',
-          'X-GraphAPI-Graph-Type-Checksum': '0123456789abcdef',
+          'X-GraphAPI-Graph-Type-Checksum': 'aaaaaaaaaaaaaaaa',
           'X-GraphAPI-Graph-Type-Runtime-Checksum': 'runtime-checksum-abc',
           'X-GraphAPI-Icon-Set-Resolution-Checksum': '111111111111abcdef',
           'X-GraphAPI-Icon-Set-Sources': 'default@1',
           'X-GraphAPI-Theme-Id': 'default',
           'X-GraphAPI-Theme-Version': '2',
-          'X-GraphAPI-Theme-Checksum': 'abcdef0123456789',
+          'X-GraphAPI-Theme-Checksum': 'bbbbbbbbbbbbbbbb',
         },
       });
     });

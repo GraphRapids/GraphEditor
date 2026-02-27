@@ -15,7 +15,7 @@
   "dependencies": {
     "@graphrapids/graph-autocomplete-core": "git+https://github.com/GraphRapids/GraphAutocompleteCore.git#0f2621a7ccfd06b42021c9e232f93f0ff9d70d84",
     "@graphrapids/graph-view": "git+https://github.com/GraphRapids/GraphView.git#543b6b68ec98324bf58a525e39cf3cb20834887b",
-    "@graphrapids/graph-yaml-editor": "git+https://github.com/GraphRapids/GraphYamlEditor.git#ffe9e37b3bf8df9cf2181e1bf14512166d49b950",
+    "@graphrapids/graph-yaml-editor": "https://codeload.github.com/GraphRapids/GraphYamlEditor/tar.gz/ffe9e37b3bf8df9cf2181e1bf14512166d49b950",
     "@monaco-editor/react": "^4.7.0",
     "ajv": "^8.17.1",
     "js-yaml": "^4.1.0",
