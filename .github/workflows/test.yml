@@ -32,18 +32,8 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
-      - name: Prepare internal package tarballs
-        run: |
-          git clone --depth 1 https://github.com/GraphRapids/GraphAutocompleteCore.git ../GraphAutocompleteCore
-          git clone --depth 1 https://github.com/GraphRapids/GraphView.git ../GraphView
-          git clone --depth 1 https://github.com/GraphRapids/GraphYamlEditor.git ../GraphYamlEditor
-          (cd ../GraphAutocompleteCore && npm pack --silent >/dev/null)
-          (cd ../GraphView && npm pack --silent >/dev/null)
-          (cd ../GraphYamlEditor && npm pack --silent >/dev/null)
-          ls -l ../GraphAutocompleteCore/*.tgz ../GraphView/*.tgz ../GraphYamlEditor/*.tgz
-
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run tests (coverage threshold)
         run: npm run test
