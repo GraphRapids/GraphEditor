@@ -14,6 +14,26 @@ Use this file as a running log between work sessions.
 
 ## Current
 
+### 2026-02-27
+- Summary: Synchronized editor runtime metadata handling with canonical icon-set naming.
+- Changes:
+  - Updated render-header expectations to canonical names:
+    - `x-graphapi-icon-set-resolution-checksum`
+    - `x-graphapi-icon-set-sources`
+  - Normalized internal naming to `iconSet*` and updated UI class naming (`profile-icon-sets`).
+  - Kept data-testid stable for test compatibility.
+- Files touched:
+  - `src/AppCore.jsx`
+  - `src/App.test.jsx`
+  - `src/styles.css`
+  - `PROJECT_CONTEXT.md`
+- Tests run:
+  - `npm test -- --run src/App.test.jsx` (42 passed)
+- Known issues:
+  - Legacy duplicate autocomplete helper code remains in `AppCore.jsx`.
+- Next steps:
+  - Remove remaining duplicate local autocomplete helper code in favor of shared package APIs.
+
 ### 2026-02-26
 - Summary: Added render theme selection and runtime metadata split (profile + theme).
 - Changes:

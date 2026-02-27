@@ -9,7 +9,7 @@ GraphEditor is the GraphRapids web application playground for authoring graph YA
 - Low-latency live rendering with request debouncing and cancellation.
 - Clear error handling without blocking editing.
 - Keep active runtime graph type (layout/catalog) and theme (render CSS) consistent across API calls.
-- Surface active iconset resolution/source metadata for the selected graph type.
+- Surface active icon-set resolution/source metadata for the selected graph type.
 
 ## System Snapshot
 - Frontend: React + Vite.
@@ -20,6 +20,11 @@ GraphEditor is the GraphRapids web application playground for authoring graph YA
 - Render backend: GraphAPI (`/api/render/svg`) behind Vite proxy.
 - Graph type runtime backend: GraphAPI (`/api/v1/graph-types`, `/api/v1/autocomplete/catalog`, `/api/v1/graph-types/{id}/runtime`).
 - Theme runtime backend: GraphAPI (`/api/v1/themes`).
+
+Naming conventions in use:
+- API paths/headers use `icon-set` terminology (for example `x-graphapi-icon-set-sources`).
+- Runtime payload fields use camelCase (`iconSetId`, `iconSetVersion`, `iconSetSources`).
+- UI still uses `profile*` variable names in code for selected graph-type state; behavior is graph-type driven.
 
 ## Runtime Configuration
 - `GRAPHEDITOR_HOST`
