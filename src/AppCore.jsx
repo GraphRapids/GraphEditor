@@ -19,6 +19,7 @@ const MAX_RENDER_RETRIES = 1;
 const INDENT_SIZE = 2;
 const MAX_RENDER_CACHE_SIZE = 50;
 const FORBIDDEN_AUTOCOMPLETE_KEYS = new Set(['id']);
+const THEME_VARIABLE_KEY_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 const STRING_COERCION_KEYS = new Set(['name', 'label', 'id', 'from', 'to']);
 const ROOT_SECTION_ALIASES = new Map([['edges', 'links']]);
@@ -90,6 +91,46 @@ function toPositiveInt(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function normalizeThemeVariableKey(value) {
+  let key = String(value || '')
+    .trim()
+    .toLowerCase();
+  while (key.startsWith('--')) {
+    key = key.slice(2);
+  }
+  key = key.replace(/_/g, '-');
+  key = key.replace(/\s+/g, '-');
+  key = key.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+  return THEME_VARIABLE_KEY_PATTERN.test(key) ? key : '';
+}
+
+function normalizeThemeVariables(rawVariables = {}) {
+  if (!rawVariables || typeof rawVariables !== 'object' || Array.isArray(rawVariables)) {
+    return {};
+  }
+  const normalized = Object.entries(rawVariables).reduce((acc, [rawKey, rawValue]) => {
+    const key = normalizeThemeVariableKey(rawKey);
+    if (!key || !rawValue || typeof rawValue !== 'object') {
+      return acc;
+    }
+    const valueType = String(rawValue.valueType || '')
+      .trim()
+      .toLowerCase();
+    const lightValue = String(rawValue.lightValue || '').trim();
+    const darkValue = String(rawValue.darkValue || '').trim();
+    if (!valueType || !lightValue || !darkValue) {
+      return acc;
+    }
+    acc[key] = {
+      valueType,
+      lightValue,
+      darkValue,
+    };
+    return acc;
+  }, {});
+  return Object.fromEntries(Object.entries(normalized).sort(([left], [right]) => left.localeCompare(right)));
+}
+
 function normalizeProfileSummary(raw = {}) {
   const profileId = String(raw.graphTypeId || raw.profileId || '')
     .trim()
@@ -145,10 +186,31 @@ function normalizeThemeSummary(raw = {}) {
     .toLowerCase();
   const themeVersion = toPositiveInt(raw.themeVersion);
   const checksum = String(raw.checksum || '').trim();
+  const variables = normalizeThemeVariables(raw.variables);
+  const cssBody = String(raw.cssBody || '').trim() || String(raw.renderCss || '').trim();
+  const renderCss = String(raw.renderCss || '').trim();
   return {
     themeId,
     themeVersion,
     checksum,
+    cssBody,
+    renderCss,
+    variables,
+    variableCount: Object.keys(variables).length,
+  };
+}
+
+function emptyThemeSummary(themeId = '') {
+  return {
+    themeId: String(themeId || '')
+      .trim()
+      .toLowerCase(),
+    themeVersion: null,
+    checksum: '',
+    cssBody: '',
+    renderCss: '',
+    variables: {},
+    variableCount: 0,
   };
 }
 
@@ -1255,6 +1317,7 @@ function resolveThemeSummaryFromHeaders(headers, fallback = {}) {
   const themeVersion = toPositiveInt(headers.get('x-graphapi-theme-version')) || fallbackSummary.themeVersion;
   const checksum = String(headers.get('x-graphapi-theme-checksum') || '').trim() || fallbackSummary.checksum;
   return {
+    ...fallbackSummary,
     themeId,
     themeVersion,
     checksum,
@@ -1499,9 +1562,7 @@ export default function App() {
     iconSetSources: [],
   });
   const [activeThemeSummary, setActiveThemeSummary] = useState({
-    themeId: '',
-    themeVersion: null,
-    checksum: '',
+    ...emptyThemeSummary(),
   });
   const [activeRenderProfileSummary, setActiveRenderProfileSummary] = useState({
     profileId: '',
@@ -1512,9 +1573,7 @@ export default function App() {
     iconSetSources: [],
   });
   const [activeRenderThemeSummary, setActiveRenderThemeSummary] = useState({
-    themeId: '',
-    themeVersion: null,
-    checksum: '',
+    ...emptyThemeSummary(),
   });
   const [theme, setTheme] = useState('light');
 
@@ -1737,16 +1796,8 @@ export default function App() {
 
   useEffect(() => {
     if (!activeThemeId) {
-      setActiveThemeSummary({
-        themeId: '',
-        themeVersion: null,
-        checksum: '',
-      });
-      setActiveRenderThemeSummary({
-        themeId: '',
-        themeVersion: null,
-        checksum: '',
-      });
+      setActiveThemeSummary(emptyThemeSummary());
+      setActiveRenderThemeSummary(emptyThemeSummary());
       return;
     }
 
@@ -1772,11 +1823,7 @@ export default function App() {
         if (cancelled || err?.name === 'AbortError') {
           return;
         }
-        setActiveThemeSummary({
-          themeId: activeThemeId,
-          themeVersion: null,
-          checksum: '',
-        });
+        setActiveThemeSummary(emptyThemeSummary(activeThemeId));
       }
     }
 

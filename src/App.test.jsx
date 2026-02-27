@@ -254,6 +254,14 @@ function installFetchMock(renderHandler) {
         themeId: 'default',
         themeVersion: 1,
         name: 'Default Render Theme',
+        cssBody: '.node.router > rect { fill: var(--node-fill); }',
+        variables: {
+          'node-fill': {
+            valueType: 'color',
+            lightValue: '#334455',
+            darkValue: '#778899',
+          },
+        },
         renderCss: '.node.router > rect { fill: #334455; }',
         updatedAt: '2026-02-26T00:00:00Z',
         checksum: 'def',
